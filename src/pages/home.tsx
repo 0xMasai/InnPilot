@@ -35,7 +35,7 @@ const LandingPage = () => {
           >
             <Hotel className="w-8 h-8 text-blue-600" />
             <span className="text-xl font-extrabold text-slate-900">
-              Jamiz Hotel - Mubende
+              Hotel Management
             </span>
           </motion.div>
 
@@ -192,7 +192,7 @@ const LandingPage = () => {
         <footer className="text-center text-gray-200 py-8 bg-black/50 border-t border-white/20 mt-24">
           <p className="text-sm">
             © {new Date().getFullYear()}{" "}
-            <span className="font-semibold text-blue-300">Jamiz Hotel — Mubende</span>. All rights reserved.
+            <span className="font-semibold text-blue-300">Hotel Management</span>. All rights reserved.
           </p>
         </footer>
       </div>

@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../firebase";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Hotel, ShieldCheck, BedDouble, Utensils } from "lucide-react";
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -27,9 +28,12 @@ const LoginPage = () => {
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
+        // Legacy account with no profile doc: create it as "pending" so an
+        // administrator must approve it (enforced by Firestore rules).
         await setDoc(userRef, {
           uid: user.uid,
           email: user.email,
+          role: "pending",
           createdAt: serverTimestamp(),
         });
       }
@@ -45,110 +49,124 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="w-screen h-screen flex items-center justify-center bg-linear-to-br from-indigo-100 via-purple-50 to-pink-50 font-poppins overflow-hidden relative">
-      {/* Soft floating blobs */}
-      <motion.div
-        animate={{ x: [0, 60, 0], y: [0, 20, 0], opacity: [0.2, 0.5, 0.2] }}
-        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute top-10 left-10 w-72 h-72 bg-purple-300/30 rounded-full blur-3xl"
-      />
-      <motion.div
-        animate={{ x: [0, -50, 0], y: [0, -30, 0], opacity: [0.3, 0.6, 0.3] }}
-        transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute bottom-0 right-20 w-96 h-96 bg-pink-300/30 rounded-full blur-3xl"
-      />
-
-      {/* Card */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6 }}
-        className="z-10 w-full max-w-md mx-auto bg-white/80 backdrop-blur-xl border border-white/30 rounded-3xl p-10 shadow-xl flex flex-col"
-      >
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-extrabold text-indigo-700 mb-1">Staff Login</h2>
-          <p className="text-gray-500 text-sm">
-            Log in to access your dashboard
-          </p>
+    <div className="min-h-screen w-full grid lg:grid-cols-2 font-poppins" style={{ background: "var(--app-bg)" }}>
+      {/* Brand panel */}
+      <div className="relative hidden lg:flex flex-col justify-between p-12 text-white overflow-hidden" style={{ background: "var(--rail)" }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center">
+            <Hotel className="size-6 text-blue-400" />
+          </div>
+          <div className="leading-tight">
+            <p className="text-lg font-semibold">Hotel Management</p>
+            <p className="text-xs text-[var(--rail-text-muted)]">Staff Console</p>
+          </div>
         </div>
 
-       <form className="space-y-5" onSubmit={handleSubmit}>
-  {/** Email **/}
-  <div className="relative">
-    <input
-      type="email"
-      value={email}
-      onChange={(e) => setEmail(e.target.value)}
-      placeholder="Email Address"
-      required
-      className="w-full px-4 py-3 rounded-xl border border-transparent bg-gray-100 text-gray-900 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-indigo-400 transition shadow-sm"
-    />
-  </div>
+        <div className="max-w-sm">
+          <h1 className="text-3xl font-bold leading-tight mb-3">Run every department from one calm, reliable console.</h1>
+          <p className="text-[var(--rail-text)] text-sm leading-relaxed">
+            Reservations, dining, conferences and finances — organized, real-time, and built for daily operations.
+          </p>
+          <div className="mt-8 space-y-3">
+            {[
+              { icon: <BedDouble size={16} />, label: "Live room availability & bookings" },
+              { icon: <Utensils size={16} />, label: "Restaurant and conference orders" },
+              { icon: <ShieldCheck size={16} />, label: "Secure, role-based access" },
+            ].map((f, i) => (
+              <div key={i} className="flex items-center gap-3 text-sm text-[var(--rail-text)]">
+                <span className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center text-blue-300">{f.icon}</span>
+                {f.label}
+              </div>
+            ))}
+          </div>
+        </div>
 
-  {/** Password **/}
-  <div className="relative">
-    <input
-      type={showPassword ? "text" : "password"}
-      value={password}
-      onChange={(e) => setPassword(e.target.value)}
-      placeholder="Password"
-      required
-      className="w-full px-4 py-3 pr-12 rounded-xl border border-transparent bg-gray-100 text-gray-900 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-indigo-400 transition shadow-sm"
-    />
-    <div
-      className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-indigo-700 cursor-pointer"
-      onClick={() => setShowPassword(!showPassword)}
-    >
-      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-    </div>
-  </div>
+        <p className="text-xs text-[var(--rail-text-muted)]">© {new Date().getFullYear()} Hotel Management · Built by Masai Labs</p>
+      </div>
 
-  {/** Remember & Forgot **/}
-  <div className="flex items-center justify-between text-sm text-gray-500">
-    {/* <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-      />
-      Remember me
-    </label> */}
-    {/* <Link to="/forgot" className="hover:underline text-indigo-600">
-      Forgot password?
-    </Link> */}
-  </div>
+      {/* Form panel */}
+      <div className="flex items-center justify-center p-6 sm:p-10">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="lg:hidden flex items-center gap-2.5 mb-8">
+            <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
+              <Hotel className="size-5 text-blue-500" />
+            </div>
+            <span className="text-lg font-semibold text-slate-800">Hotel Management</span>
+          </div>
 
-  {/** Error **/}
-  {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          <h2 className="text-2xl font-bold text-slate-800 mb-1">Staff sign in</h2>
+          <p className="text-slate-500 text-sm mb-8">Log in to access your dashboard.</p>
 
-  {/** Login Button **/}
-  <button
-    type="submit"
-    disabled={loading}
-    className={`w-full py-3 rounded-xl font-semibold text-white shadow-md transition ${
-      loading
-        ? "bg-indigo-300 cursor-not-allowed"
-        : "bg-linear-to-r from-indigo-600 to-purple-500 hover:from-indigo-700 hover:to-purple-600"
-    }`}
-  >
-    {loading ? "Logging in..." : "Log In"}
-  </button>
-</form>
+          {notice && (
+            <div
+              className="text-sm rounded-md px-3 py-2 mb-4"
+              style={{ background: "var(--info-soft, #eff6ff)", color: "#1d4ed8", border: "1px solid #bfdbfe" }}
+            >
+              {notice}
+            </div>
+          )}
 
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div>
+              <label className="field-label">Email address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                className="input"
+              />
+            </div>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
-          Don’t have an account?{" "}
-          <Link to="/signup" className="text-indigo-700 font-medium hover:underline">
-            Sign Up
-          </Link>
-        </p>
+            <div>
+              <label className="field-label">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="input"
+                  style={{ paddingRight: "2.75rem" }}
+                />
+                <button
+                  type="button"
+                  className="absolute top-1/2 right-3 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
 
-        <p className="text-center text-sm text-gray-500 mt-2">
-          <Link to="/" className="text-indigo-700 font-medium hover:underline">
-            Back to Home
-          </Link>
-        </p>
+            {error && (
+              <div className="text-sm rounded-md px-3 py-2" style={{ background: "var(--danger-soft)", color: "var(--danger-text)", border: "1px solid var(--danger-border)" }}>
+                {error}
+              </div>
+            )}
 
-      </motion.div>
+            <button type="submit" disabled={loading} className="btn btn-primary w-full">
+              {loading ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+
+          <p className="text-center text-sm text-slate-500 mt-6">
+            Don’t have an account?{" "}
+            <Link to="/signup" className="font-medium text-blue-600 hover:underline">Sign up</Link>
+          </p>
+          <p className="text-center text-sm text-slate-400 mt-2">
+            <Link to="/admin/login" className="hover:underline">Admin login</Link>
+          </p>
+        </motion.div>
+      </div>
     </div>
   );
 };

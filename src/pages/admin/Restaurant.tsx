@@ -7,6 +7,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db, auth } from "../../../firebase";
+import { Printer, Search, Pencil, Utensils, X } from "lucide-react";
 
 interface Order {
   id?: string;
@@ -20,10 +21,10 @@ interface Order {
 
 const categories = ["Breakfast", "Lunch", "Dinner", "Cocktails"] as const;
 const categoryColors: Record<typeof categories[number], string> = {
-  Breakfast: "bg-yellow-100 text-yellow-800",
-  Lunch: "bg-green-100 text-green-800",
-  Dinner: "bg-purple-100 text-purple-800",
-  Cocktails: "bg-pink-100 text-pink-800",
+  Breakfast: "badge badge-warning badge-plain",
+  Lunch: "badge badge-success badge-plain",
+  Dinner: "badge badge-info badge-plain",
+  Cocktails: "badge badge-neutral badge-plain",
 };
 
 export default function AdminRestaurantDashboard() {
@@ -188,212 +189,123 @@ export default function AdminRestaurantDashboard() {
   };
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
-      <h1 className="text-4xl font-extrabold mb-6 text-gray-900">
-        Restaurant Orders Dashboard
-      </h1>
+    <div className="space-y-6">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Restaurant Orders</h1>
+          <p className="page-subtitle">All dining orders across the property.</p>
+        </div>
+        <button onClick={printRestaurantOrders} className="btn btn-secondary">
+          <Printer size={16} /> Print Orders
+        </button>
+      </div>
 
       {/* FILTERS */}
-<div className="flex flex-wrap gap-4 mb-6">
-  <input
-    type="text"
-    placeholder="Filter by client name"
-    value={clientFilter}
-    onChange={(e) => setClientFilter(e.target.value)}
-    className="px-3 py-2 border border-black text-black rounded w-60"
-  />
-
-  <select
-    value={categoryFilter}
-    onChange={(e) =>
-      setCategoryFilter(e.target.value as "" | Order["category"])
-    }
-    className="px-3 py-2 border border-black text-black rounded w-48"
-  >
-    <option value="">All Categories</option>
-    {categories.map((cat) => (
-      <option key={cat} value={cat}>
-        {cat}
-      </option>
-    ))}
-  </select>
-
-  <button
-    onClick={printRestaurantOrders}
-    className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-  >
-    Print Orders
-  </button>
-</div>
-
+      <div className="filter-bar">
+        <h3 className="section-title mb-3">Filter orders</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+          <div className="search-wrap">
+            <Search size={16} />
+            <input type="text" aria-label="Filter by client name" placeholder="Filter by client name" value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="input" />
+          </div>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as "" | Order["category"])} className="select" aria-label="Category">
+            <option value="">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* Orders Table */}
-      <div className="overflow-x-auto shadow-lg rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200 text-black">
-          <thead className="bg-gray-100 sticky top-0">
-            <tr>
-              {[
-                "Client",
-                "Order Details",
-                "Category",
-                "Price",
-                "Date",
-                "Actions",
-              ].map((title) => (
-                <th
-                  key={title}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider"
-                >
-                  {title}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
+      <div className="card card-pad">
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
               <tr>
-                <td colSpan={6} className="p-4 text-center text-gray-500">
-                  Loading orders...
-                </td>
+                {["Client", "Order Details", "Category", "Price", "Date", "Actions"].map((title) => (
+                  <th key={title}>{title}</th>
+                ))}
               </tr>
-            ) : orders.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="p-4 text-center text-gray-700">
-                  No restaurant orders found.
-                </td>
-              </tr>
-            ) : (
-              orders.map((order, idx) => (
-                <tr
-                  key={order.id}
-                  className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                >
-                  <td className="px-6 py-4">{order.clientName}</td>
-                  <td className="px-6 py-4 max-w-xs truncate">{order.orderDetails}</td>
+            </thead>
 
-                  <td className="px-6 py-4">
-                    <span
-                      className={`px-2 py-1 rounded-full text-sm font-medium ${categoryColors[order.category]}`}
-                    >
-                      {order.category}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4">{order.price.toLocaleString()} UGX</td>
-
-                  <td className="px-6 py-4">
-                    {new Date(order.createdAt).toLocaleString()}
-                  </td>
-
-                  {/* Improved Action Buttons */}
-                  <td className="px-6 py-4">
-                    <div className="flex gap-3">
-                      {/* <button
-                        onClick={() => printReceipt(order)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                      >
-                        Print
-                      </button> */}
-
-                      <button
-                        onClick={() => startEditing(order)}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
-                      >
-                        Edit
-                      </button>
-
-                      {/* <button
-                        onClick={() => handleDelete(order.id)}
-                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                      >
-                        Delete
-                      </button> */}
+            <tbody>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 6 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: j === 1 ? 140 : 70 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><Utensils size={24} /></div>
+                      <p className="empty-title">No orders found</p>
+                      <p className="empty-desc">No restaurant orders match your filters yet.</p>
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                filteredOrders.map((order) => (
+                  <tr key={order.id}>
+                    <td className="font-medium text-slate-800">{order.clientName}</td>
+                    <td className="max-w-xs truncate">{order.orderDetails}</td>
+                    <td>
+                      <span className={categoryColors[order.category]}>{order.category}</span>
+                    </td>
+                    <td className="font-medium">{order.price.toLocaleString()} UGX</td>
+                    <td className="text-slate-500 whitespace-nowrap">{new Date(order.createdAt).toLocaleString()}</td>
+                    <td>
+                      <button onClick={() => startEditing(order)} className="btn btn-secondary btn-sm">
+                        <Pencil size={15} /> Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-     {/* EDIT POPUP */}
+      {/* EDIT POPUP */}
       {isEditing && currentOrder && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg text-black">
-            <h2 className="text-2xl font-bold mb-4">Edit Order</h2>
-
-            <div className="space-y-3">
-              {/* Client Name */}
-              <input
-                type="text"
-                value={currentOrder.clientName}
-                onChange={(e) =>
-                  setCurrentOrder({ ...currentOrder, clientName: e.target.value })
-                }
-                placeholder="Client Name"
-                className="w-full border px-3 py-2 rounded text-black"
-              />
-
-              {/* Order Details */}
-              <input
-                type="text"
-                value={currentOrder.orderDetails}
-                onChange={(e) =>
-                  setCurrentOrder({ ...currentOrder, orderDetails: e.target.value })
-                }
-                placeholder="Order Details"
-                className="w-full border px-3 py-2 rounded text-black"
-              />
-
-              {/* Category */}
-              <select
-                value={currentOrder.category}
-                onChange={(e) =>
-                  setCurrentOrder({
-                    ...currentOrder,
-                    category: e.target.value as Order["category"],
-                  })
-                }
-                className="w-full border px-3 py-2 rounded text-black"
-              >
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-
-              {/* Price */}
-              <input
-                type="number"
-                value={currentOrder.price}
-                onChange={(e) =>
-                  setCurrentOrder({
-                    ...currentOrder,
-                    price: Number(e.target.value),
-                  })
-                }
-                placeholder="Price"
-                className="w-full border px-3 py-2 rounded text-black"
-              />
+        <div className="modal-overlay" onClick={() => setIsEditing(false)}>
+          <div className="modal-panel max-w-lg" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit order">
+            <div className="modal-header">
+              <h2 className="modal-title">Edit Order</h2>
+              <button className="icon-btn" onClick={() => setIsEditing(false)} aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="flex justify-end gap-4 mt-6">
-              <button
-                onClick={() => setIsEditing(false)}
-                className="px-4 py-2 bg-gray-400 text-white rounded"
-              >
-                Cancel
-              </button>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="field-label">Client name</label>
+                <input type="text" value={currentOrder.clientName} onChange={(e) => setCurrentOrder({ ...currentOrder, clientName: e.target.value })} placeholder="Client name" className="input" />
+              </div>
+              <div>
+                <label className="field-label">Order details</label>
+                <input type="text" value={currentOrder.orderDetails} onChange={(e) => setCurrentOrder({ ...currentOrder, orderDetails: e.target.value })} placeholder="Order details" className="input" />
+              </div>
+              <div>
+                <label className="field-label">Category</label>
+                <select value={currentOrder.category} onChange={(e) => setCurrentOrder({ ...currentOrder, category: e.target.value as Order["category"] })} className="select">
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Price (UGX)</label>
+                <input type="number" value={currentOrder.price} onChange={(e) => setCurrentOrder({ ...currentOrder, price: Number(e.target.value) })} placeholder="Price" className="input" />
+              </div>
 
-              <button
-                onClick={saveEdit}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Save Changes
-              </button>
+              <div className="flex justify-end gap-3 pt-1">
+                <button onClick={() => setIsEditing(false)} className="btn btn-secondary">Cancel</button>
+                <button onClick={saveEdit} className="btn btn-primary">Save Changes</button>
+              </div>
             </div>
           </div>
         </div>

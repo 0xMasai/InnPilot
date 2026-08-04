@@ -16,6 +16,7 @@ import { db, auth } from "../../../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
+import { Printer, Search, Pencil, BedDouble, X } from "lucide-react";
 
 interface AccommodationRecord {
   id: string;
@@ -303,170 +304,158 @@ export default function AdminAccommodationDashboard() {
   }, []);
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen text-black">
-      <h1 className="text-4xl font-extrabold mb-6">Accommodation Records</h1>
-
-      {/* LOADING */}
-      {loading && (
-        <p className="text-blue-600 mb-4 text-lg font-semibold">Loading records...</p>
-      )}
+    <div className="space-y-6">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Accommodation Records</h1>
+          <p className="page-subtitle">All guest bookings across the property.</p>
+        </div>
+        <button onClick={printAccommodationRecords} className="btn btn-secondary">
+          <Printer size={16} /> Print Records
+        </button>
+      </div>
 
       {/* ERROR */}
       {error && (
-        <p className="text-red-600 mb-4 text-lg font-semibold">{error}</p>
+        <div className="card" style={{ borderColor: "var(--danger-border)", background: "var(--danger-soft)" }}>
+          <p className="px-4 py-3 text-sm font-medium" style={{ color: "var(--danger-text)" }}>{error}</p>
+        </div>
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4 mb-6">
-        <input
-          type="text"
-          placeholder="Filter by Guest Name"
-          value={guestNameFilter}
-          onChange={(e) => setGuestNameFilter(e.target.value)}
-          className="px-3 py-2 border border-black rounded w-60 text-black"
-        />
-
-        <input
-          type="text"
-          placeholder="Filter by Guest Email"
-          value={guestEmailFilter}
-          onChange={(e) => setGuestEmailFilter(e.target.value)}
-          className="px-3 py-2 border border-black rounded w-60 text-black"
-        />
-
-        <button
-          onClick={printAccommodationRecords}
-          className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-        >
-          Print Records
-        </button>
-
-        
+      <div className="filter-bar">
+        <h3 className="section-title mb-3">Filter records</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+          <div className="search-wrap">
+            <Search size={16} />
+            <input type="text" aria-label="Filter by guest name" placeholder="Filter by guest name" value={guestNameFilter} onChange={(e) => setGuestNameFilter(e.target.value)} className="input" />
+          </div>
+          <div className="search-wrap">
+            <Search size={16} />
+            <input type="text" aria-label="Filter by guest email" placeholder="Filter by guest email" value={guestEmailFilter} onChange={(e) => setGuestEmailFilter(e.target.value)} className="input" />
+          </div>
+        </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto shadow-lg rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200 text-black">
-          <thead className="bg-gray-100 sticky top-0 text-black">
-            <tr>
-              {[
-                "Guest Name",
-                "Guest Email",
-                "Room Type",
-                "Guests",
-                "Check-in",
-                "Check-out",
-                "Amount Paid (in UGX)",
-                "Payment Status",
-                "Notes",
-                "Actions",
-              ].map((title) => (
-                <th
-                  key={title}
-                  className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-black"
-                >
-                  {title}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filteredRecords.map((record) => (
-              <tr key={record.id}>
-                <td className="px-6 py-4 text-black">{record.guestName}</td>
-                <td className="px-6 py-4 text-black">{record.guestEmail}</td>
-                <td className="px-6 py-4 text-black">{record.roomType}</td>
-                <td className="px-6 py-4 text-black">{record.numberOfGuests}</td>
-                <td className="px-6 py-4 text-black">{record.checkIn}</td>
-                <td className="px-6 py-4 text-black">{record.checkOut}</td>
-                <td className="px-6 py-4 text-black">{record.pricePaid}</td>
-                <td className="px-6 py-4 text-black">{record.paymentStatus}</td>
-
-                <td className="px-6 py-4 max-w-xs truncate text-black">
-                  <Tippy content={record.notes}>
-                    <span>{record.notes}</span>
-                  </Tippy>
-                </td>
-
-                {/* ACTION BUTTONS */}
-                <td className="px-6 py-4">
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => openEditModal(record)}
-                      className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-                    >
-                      Edit
-                    </button>
-
-                    {/* <button
-                      onClick={() => handleDelete(record.id)}
-                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                    >
-                      Delete
-                    </button> */}
-                  </div>
-                </td>
+      <div className="card card-pad">
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {[
+                  "Guest Name",
+                  "Guest Email",
+                  "Room Type",
+                  "Guests",
+                  "Check-in",
+                  "Check-out",
+                  "Amount (UGX)",
+                  "Payment",
+                  "Notes",
+                  "Actions",
+                ].map((title) => (
+                  <th key={title}>{title}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+
+            <tbody>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 10 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: 70 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredRecords.length ? (
+                filteredRecords.map((record) => (
+                  <tr key={record.id}>
+                    <td className="font-medium text-slate-800">{record.guestName}</td>
+                    <td className="text-slate-500">{record.guestEmail}</td>
+                    <td>{record.roomType}</td>
+                    <td>{record.numberOfGuests}</td>
+                    <td className="text-slate-500 whitespace-nowrap">{record.checkIn}</td>
+                    <td className="text-slate-500 whitespace-nowrap">{record.checkOut}</td>
+                    <td className="font-medium">{record.pricePaid.toLocaleString()} UGX</td>
+                    <td>
+                      <span className={`badge ${String(record.paymentStatus).toLowerCase() === "paid" ? "badge-success" : "badge-warning"}`}>
+                        {record.paymentStatus || "—"}
+                      </span>
+                    </td>
+                    <td className="max-w-xs truncate">
+                      <Tippy content={record.notes}>
+                        <span>{record.notes}</span>
+                      </Tippy>
+                    </td>
+                    <td>
+                      <button onClick={() => openEditModal(record)} className="btn btn-secondary btn-sm">
+                        <Pencil size={15} /> Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={10}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><BedDouble size={24} /></div>
+                      <p className="empty-title">No records found</p>
+                      <p className="empty-desc">No accommodation records match your filters yet.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {hasMore && (
-        <div className="mt-6 text-center">
-          <button
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="px-6 py-2 rounded text-white bg-blue-600 hover:bg-blue-700"
-          >
-            {loadingMore ? "Loading..." : "Load More"}
+      {hasMore && !loading && (
+        <div className="text-center">
+          <button onClick={loadMore} disabled={loadingMore} className="btn btn-secondary">
+            {loadingMore ? "Loading…" : "Load More"}
           </button>
         </div>
       )}
 
       {/* EDIT POPUP */}
       {isEditOpen && editData && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg text-black">
-            <h2 className="text-2xl font-bold mb-4">Edit Record</h2>
-
-            <div className="space-y-3">
-              {(
-                [
-                  "guestName",
-                  "guestEmail",
-                  "roomType",
-                  "numberOfGuests",
-                  "pricePaid",
-                  "paymentStatus",
-                  "notes",
-                ] as (keyof AccommodationRecord)[]
-              ).map((field) => (
-                <input
-                  key={field}
-                  type="text"
-                  value={editData[field]}
-                  onChange={(e) => handleEditChange(field, e.target.value)}
-                  className="w-full border px-3 py-2 rounded text-black"
-                />
-              ))}
+        <div className="modal-overlay" onClick={closeEditModal}>
+          <div className="modal-panel max-w-lg" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit record">
+            <div className="modal-header">
+              <h2 className="modal-title">Edit Record</h2>
+              <button className="icon-btn" onClick={closeEditModal} aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="flex justify-end gap-4 mt-6">
-              <button
-                onClick={closeEditModal}
-                className="px-4 py-2 bg-gray-400 text-white rounded"
-              >
-                Cancel
-              </button>
+            <div className="p-6 space-y-4">
+              {(
+                [
+                  ["guestName", "Guest name"],
+                  ["guestEmail", "Guest email"],
+                  ["roomType", "Room type"],
+                  ["numberOfGuests", "Number of guests"],
+                  ["pricePaid", "Amount paid (UGX)"],
+                  ["paymentStatus", "Payment status"],
+                  ["notes", "Notes"],
+                ] as [keyof AccommodationRecord, string][]
+              ).map(([field, label]) => (
+                <div key={field}>
+                  <label className="field-label">{label}</label>
+                  <input
+                    type="text"
+                    value={editData[field]}
+                    onChange={(e) => handleEditChange(field, e.target.value)}
+                    className="input"
+                  />
+                </div>
+              ))}
 
-              <button
-                onClick={saveEditChanges}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Save Changes
-              </button>
+              <div className="flex justify-end gap-3 pt-1">
+                <button onClick={closeEditModal} className="btn btn-secondary">Cancel</button>
+                <button onClick={saveEditChanges} className="btn btn-primary">Save Changes</button>
+              </div>
             </div>
           </div>
         </div>

@@ -12,6 +12,7 @@ import { db } from "../../../firebase";
 import "flatpickr/dist/flatpickr.min.css";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
+import { Printer, Pencil, PieChart, X } from "lucide-react";
 
 interface Expense {
   id: string;
@@ -43,7 +44,14 @@ export default function AdminExpensesDashboard() {
   const unsub = onSnapshot(q, async (snapshot) => {
     const data: Expense[] = await Promise.all(
       snapshot.docs.map(async (docSnap) => {
-        const exp = { ...(docSnap.data() as Expense), id: docSnap.id };
+        const raw = docSnap.data() as any;
+        // Expenses are written with `createdAt` (Timestamp); derive the `date`
+        // string the UI expects so dates aren't "Invalid Date".
+        const exp = {
+          ...(raw as Expense),
+          id: docSnap.id,
+          date: raw.date || raw.createdAt?.toDate?.()?.toISOString() || "",
+        };
 
         // Use createdByName from expense first
         let createdByName = exp.createdByName || "";
@@ -186,182 +194,132 @@ export default function AdminExpensesDashboard() {
   };
 
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
-      <h1 className="text-4xl font-extrabold mb-6 text-gray-900">
-        Admin Expenses Dashboard
-      </h1>
+    <div className="space-y-6">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Expenses</h1>
+          <p className="page-subtitle">All operational spending across the property.</p>
+        </div>
+        <button onClick={handlePrint} className="btn btn-secondary">
+          <Printer size={16} /> Print
+        </button>
+      </div>
 
-      {/* Filters + Print */}
-<div className="flex flex-wrap items-end gap-4 mb-6">
-  <div>
-    <label className="block text-gray-700 font-semibold mb-1">
-      Department
-    </label>
-    <input
-      type="text"
-      value={departmentFilter}
-      onChange={(e) => setDepartmentFilter(e.target.value)}
-      placeholder="e.g. Kitchen, Admin"
-      className="px-3 py-2 border border-black rounded w-48 text-black"
-    />
-  </div>
-
-  <div>
-    <label className="block text-gray-700 font-semibold mb-1">
-      Created By
-    </label>
-    <input
-      type="text"
-      value={createdByFilter}
-      onChange={(e) => setCreatedByFilter(e.target.value)}
-      placeholder="User name"
-      className="px-3 py-2 border border-black rounded w-48 text-black"
-    />
-  </div>
-
-  <div className="flex-1 min-w-[200px]">
-    <label className="block text-gray-700 font-semibold mb-1">
-      Search Description / Notes
-    </label>
-    <input
-      type="text"
-      value={searchFilter}
-      onChange={(e) => setSearchFilter(e.target.value)}
-      placeholder="Search..."
-      className="px-3 py-2 border border-black rounded w-full text-black"
-    />
-  </div>
-
-  <button
-    onClick={handlePrint}
-    className="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-  >
-    Print
-  </button>
-</div>
-
+      {/* Filters */}
+      <div className="filter-bar">
+        <h3 className="section-title mb-3">Filter expenses</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label className="field-label">Department</label>
+            <input type="text" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} placeholder="e.g. Kitchen, Admin" className="input" />
+          </div>
+          <div>
+            <label className="field-label">Created by</label>
+            <input type="text" value={createdByFilter} onChange={(e) => setCreatedByFilter(e.target.value)} placeholder="User name" className="input" />
+          </div>
+          <div>
+            <label className="field-label">Search description / notes</label>
+            <input type="text" value={searchFilter} onChange={(e) => setSearchFilter(e.target.value)} placeholder="Search…" className="input" />
+          </div>
+        </div>
+      </div>
 
       {/* Expenses Table */}
-      <div className="overflow-x-auto shadow-lg rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-100 sticky top-0">
-            <tr>
-              {[
-                "Department",
-                "Description",
-                "Amount",
-                "Date",
-                "Notes",
-                "Created By",
-                "Actions",
-              ].map((title) => (
-                <th
-                  key={title}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider"
-                >
-                  {title}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
+      <div className="card card-pad">
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
               <tr>
-                <td colSpan={7} className="p-4 text-center text-gray-500">
-                  Loading expenses...
-                </td>
+                {["Department", "Description", "Amount", "Date", "Notes", "Created By", "Actions"].map((title) => (
+                  <th key={title}>{title}</th>
+                ))}
               </tr>
-            ) : filteredExpenses.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="p-4 text-center text-gray-700">
-                  No expenses found in selected range.
-                </td>
-              </tr>
-            ) : (
-              filteredExpenses.map((exp, idx) => (
-                <tr
-                  key={exp.id}
-                  className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                >
-                  <td className="px-6 py-4 text-gray-700">{exp.department || "-"}</td>
-                  <td className="px-6 py-4 max-w-xs truncate text-gray-700">
-                    <Tippy content={exp.description || "-"} placement="top">
-                      <span>{exp.description || "-"}</span>
-                    </Tippy>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700">{exp.amount.toLocaleString()} UGX</td>
-                  <td className="px-6 py-4 text-gray-700">
-                    {exp.date ? new Date(exp.date).toLocaleString() : "-"}
-                  </td>
-                  <td className="px-6 py-4 max-w-xs truncate text-gray-700">
-                    <Tippy content={exp.notes || "-"} placement="top">
-                      <span>{exp.notes || "-"}</span>
-                    </Tippy>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700">
-                    {exp.createdByName || "Unknown"}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => openEditModal(exp)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                      >
-                        Edit
-                      </button>
-                      {/* <button
-                        onClick={() => handleDelete(exp.id)}
-                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                      >
-                        Delete
-                      </button> */}
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: j === 1 ? 140 : 70 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredExpenses.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><PieChart size={24} /></div>
+                      <p className="empty-title">No expenses found</p>
+                      <p className="empty-desc">No expenses match your current filters.</p>
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                filteredExpenses.map((exp) => (
+                  <tr key={exp.id}>
+                    <td><span className="badge badge-neutral badge-plain">{exp.department || "-"}</span></td>
+                    <td className="max-w-xs truncate text-slate-700">
+                      <Tippy content={exp.description || "-"} placement="top">
+                        <span>{exp.description || "-"}</span>
+                      </Tippy>
+                    </td>
+                    <td className="font-medium">{exp.amount.toLocaleString()} UGX</td>
+                    <td className="text-slate-500 whitespace-nowrap">{exp.date ? new Date(exp.date).toLocaleString() : "-"}</td>
+                    <td className="max-w-xs truncate text-slate-500">
+                      <Tippy content={exp.notes || "-"} placement="top">
+                        <span>{exp.notes || "-"}</span>
+                      </Tippy>
+                    </td>
+                    <td className="text-slate-600">{exp.createdByName || "Unknown"}</td>
+                    <td>
+                      <button onClick={() => openEditModal(exp)} className="btn btn-secondary btn-sm">
+                        <Pencil size={15} /> Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* EDIT POPUP */}
       {isEditOpen && editData && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg text-black">
-            <h2 className="text-2xl font-bold mb-4">Edit Expense</h2>
-
-            <div className="space-y-3">
-              {(
-                ["department","description","amount","date","notes"] as (keyof Expense)[]
-              ).map((field) => (
-                <input
-                  key={field}
-                  type={field === "amount" ? "number" : "text"}
-                  value={editData[field] as string | number}
-                  onChange={(e) =>
-                    handleEditChange(
-                      field,
-                      field === "amount" ? Number(e.target.value) : e.target.value
-                    )
-                  }
-                  className="w-full border px-3 py-2 rounded text-black"
-                />
-              ))}
+        <div className="modal-overlay" onClick={() => setIsEditOpen(false)}>
+          <div className="modal-panel max-w-lg" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit expense">
+            <div className="modal-header">
+              <h2 className="modal-title">Edit Expense</h2>
+              <button className="icon-btn" onClick={() => setIsEditOpen(false)} aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="flex justify-end gap-4 mt-6">
-              <button
-                onClick={() => setIsEditOpen(false)}
-                className="px-4 py-2 bg-gray-400 text-white rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveEditChanges}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Save Changes
-              </button>
+            <div className="p-6 space-y-4">
+              {(
+                [
+                  ["department", "Department"],
+                  ["description", "Description"],
+                  ["amount", "Amount (UGX)"],
+                  ["date", "Date"],
+                  ["notes", "Notes"],
+                ] as [keyof Expense, string][]
+              ).map(([field, label]) => (
+                <div key={field}>
+                  <label className="field-label">{label}</label>
+                  <input
+                    type={field === "amount" ? "number" : "text"}
+                    value={editData[field] as string | number}
+                    onChange={(e) =>
+                      handleEditChange(field, field === "amount" ? Number(e.target.value) : e.target.value)
+                    }
+                    className="input"
+                  />
+                </div>
+              ))}
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button onClick={() => setIsEditOpen(false)} className="btn btn-secondary">Cancel</button>
+                <button onClick={saveEditChanges} className="btn btn-primary">Save Changes</button>
+              </div>
             </div>
           </div>
         </div>

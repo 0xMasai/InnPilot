@@ -1,10 +1,26 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { collection, addDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, addDoc, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { Plus, X } from "lucide-react";
+import {
+  Plus,
+  X,
+  Printer,
+  Search,
+  Utensils,
+  CheckCircle2,
+  Banknote,
+  Ban,
+  ReceiptText,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { COLLECTIONS } from "./lib/collections";
+import { getRange, inRange, orderDate } from "./lib/metrics";
+import { logAction } from "./lib/audit";
+
+type OrderStatus = "Open" | "Served" | "Paid" | "Cancelled";
+type PaymentMethod = "Cash" | "Mobile Money" | "Card";
 
 interface Order {
   id?: string;
@@ -13,18 +29,31 @@ interface Order {
   orderDetails: string;
   category: "Breakfast" | "Lunch" | "Dinner" | "Cocktails";
   price: number;
+  status?: OrderStatus;
+  paymentMethod?: PaymentMethod;
   userId: string;
   createdAt: string;
 }
 
 const categories = ["Breakfast", "Lunch", "Dinner", "Cocktails"] as const;
+const paymentMethods: PaymentMethod[] = ["Cash", "Mobile Money", "Card"];
 
-const categoryColors: Record<typeof categories[number], string> = {
-  Breakfast: "bg-yellow-100 text-yellow-800",
-  Lunch: "bg-green-100 text-green-800",
-  Dinner: "bg-purple-100 text-purple-800",
-  Cocktails: "bg-pink-100 text-pink-800",
+const categoryBadge: Record<typeof categories[number], string> = {
+  Breakfast: "badge-warning badge-plain",
+  Lunch: "badge-success badge-plain",
+  Dinner: "badge-info badge-plain",
+  Cocktails: "badge-neutral badge-plain",
 };
+
+const statusBadge: Record<OrderStatus, string> = {
+  Open: "badge-info",
+  Served: "badge-warning",
+  Paid: "badge-success",
+  Cancelled: "badge-danger",
+};
+
+/** Legacy orders predate the lifecycle — they were recorded as completed sales. */
+const orderStatusOf = (o: Order): OrderStatus => o.status ?? "Paid";
 
 export default function RestaurantDashboard() {
   const [open, setOpen] = useState(false);
@@ -35,35 +64,31 @@ export default function RestaurantDashboard() {
     orderDetails: "",
     category: "Breakfast",
     price: 0,
+    paymentMethod: "Cash",
     userId: auth.currentUser?.uid ?? "",
     createdAt: new Date().toISOString(),
   };
 
   const [formData, setFormData] = useState<Order>(initialFormData);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Filters
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<"All" | typeof categories[number]>("All");
-  const [filterMinPrice, setFilterMinPrice] = useState<number | "">("");
-  const [filterMaxPrice, setFilterMaxPrice] = useState<number | "">("");
+  const [filterStatus, setFilterStatus] = useState<"All" | OrderStatus>("All");
 
-  // Fetch orders
+  // Fetch orders — shared operational data: every staff member sees all
+  // orders (userId is still written on each record for accountability).
   useEffect(() => {
-    if (!auth.currentUser) return;
-
-    const q = query(
-      collection(db, "restaurant"),
-      where("userId", "==", auth.currentUser.uid)
-    );
-
-    const unsub = onSnapshot(q, (snapshot) => {
+    const unsub = onSnapshot(collection(db, COLLECTIONS.RESTAURANT), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...(doc.data() as Order),
       }));
 
-      setOrders(data.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setOrders(data.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
+      setLoading(false);
     });
 
     return () => unsub();
@@ -88,13 +113,14 @@ export default function RestaurantDashboard() {
     }
 
     try {
-      await addDoc(collection(db, "restaurant"), {
+      const ref = await addDoc(collection(db, COLLECTIONS.RESTAURANT), {
         ...formData,
+        status: "Open" as OrderStatus,
         userId: auth.currentUser?.uid ?? "",
         createdAt: new Date().toISOString(),
       });
+      logAction("Order created", "order", ref.id, `${formData.clientName} · ${formData.category} · UGX ${formData.price.toLocaleString()}`);
 
-      // Reset form
       setFormData({
         ...initialFormData,
         userId: auth.currentUser?.uid ?? "",
@@ -107,19 +133,31 @@ export default function RestaurantDashboard() {
     }
   };
 
+  const setStatus = async (o: Order, status: OrderStatus) => {
+    if (!o.id) return;
+    try {
+      await updateDoc(doc(db, COLLECTIONS.RESTAURANT, o.id), { status });
+      logAction(`Order ${status.toLowerCase()}`, "order", o.id, `${o.clientName} · UGX ${o.price.toLocaleString()}`);
+    } catch (err) {
+      console.error("Failed to update order:", err);
+    }
+  };
+
   const printReceipt = (order: Order) => {
     const w = window.open("", "PRINT", "height=600,width=400");
     if (!w) return;
 
     w.document.write(`
       <html>
-        <head><title>Welcome to Jamiz Hotel</title></head>
+        <head><title>Restaurant Receipt</title></head>
         <body>
           <h2>Restaurant Receipt</h2>
           <p><strong>Client:</strong> ${order.clientName}</p>
           <p><strong>Order:</strong> ${order.orderDetails}</p>
           <p><strong>Category:</strong> ${order.category}</p>
           <p><strong>Price:</strong> ${order.price.toLocaleString()} UGX</p>
+          <p><strong>Status:</strong> ${orderStatusOf(order)}</p>
+          <p><strong>Payment:</strong> ${order.paymentMethod ?? "-"}</p>
           <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
         </body>
       </html>
@@ -130,6 +168,23 @@ export default function RestaurantDashboard() {
     w.print();
   };
 
+  // Today's stats (same range logic as the dashboard).
+  const todayStats = useMemo(() => {
+    const today = getRange("today");
+    let sales = 0;
+    let count = 0;
+    let openCount = 0;
+    for (const o of orders) {
+      const st = orderStatusOf(o);
+      if (st === "Open" || st === "Served") openCount += 1;
+      if (st === "Cancelled") continue;
+      if (!inRange(orderDate(o), today)) continue;
+      count += 1;
+      sales += Number(o.price) || 0;
+    }
+    return { sales, count, openCount };
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       const matchesSearch =
@@ -138,290 +193,245 @@ export default function RestaurantDashboard() {
         o.orderDetails.toLowerCase().includes(search.toLowerCase());
 
       const matchesCategory = filterCategory === "All" ? true : o.category === filterCategory;
-      const matchesMinPrice = filterMinPrice === "" ? true : o.price >= filterMinPrice;
-      const matchesMaxPrice = filterMaxPrice === "" ? true : o.price <= filterMaxPrice;
+      const matchesStatus = filterStatus === "All" ? true : orderStatusOf(o) === filterStatus;
 
-      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice;
+      return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [orders, search, filterCategory, filterMinPrice, filterMaxPrice]);
-
-  // const resetFilters = () => {
-  //   setSearch("");
-  //   setFilterCategory("All");
-  //   setFilterMinPrice("");
-  //   setFilterMaxPrice("");
-  // };
+  }, [orders, search, filterCategory, filterStatus]);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-100 to-gray-200 p-6">
-      <div className="max-w-7xl mx-auto">
-
-        {/* HEADER */}
-        <div className="flex items-center justify-between mb-10">
-          <h2 className="text-4xl font-bold text-gray-900 tracking-tight">
-            Restaurant Dashboard
-          </h2>
-
-          <button
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-xl shadow hover:bg-green-700 transition-all"
-          >
-            <Plus className="w-5 h-5" /> Add Order
-          </button>
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Restaurant</h2>
+          <p className="page-subtitle">Take orders, track service and record payments.</p>
         </div>
+        <button onClick={() => setOpen(true)} className="btn btn-primary">
+          <Plus className="w-4 h-4" /> New Order
+        </button>
+      </div>
 
-        {/* MODAL */}
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <motion.div
-                className="bg-white rounded-2xl p-8 shadow-xl w-full max-w-2xl relative"
-                initial={{ y: 40, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 40, opacity: 0 }}
-              >
-                <button
-                  className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-                  onClick={() => {
-                    setOpen(false);
-                    setFormData(initialFormData);
-                  }}
-                >
-                  <X className="w-6 h-6" />
-                </button>
-
-                <h2 className="text-2xl font-bold mb-6 text-gray-800">New Order</h2>
-
-                {/* FORM */}
-                <form className="space-y-6" onSubmit={handleSubmit}>
-                  {/* Client Name & Category */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-900 mb-1">
-                        Client Name
-                      </label>
-                      <input
-                        type="text"
-                        name="clientName"
-                        value={formData.clientName}
-                        onChange={handleChange}
-                        placeholder="Enter client name"
-                        className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none 
-                                   focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-900 mb-1">
-                        Phone Number
-                      </label>
-                      <input
-                        type="tel"
-                        name="clientPhoneNumber"
-                        value={formData.clientPhoneNumber ?? ""}
-                        onChange={handleChange}
-                        placeholder="e.g. +256 7xx xxx xxx"
-                        className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none 
-                                  focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-                      />
-                    </div>
-
-
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-900 mb-1">
-                        Category
-                      </label>
-                      <select
-                        name="category"
-                        value={formData.category}
-                        onChange={handleChange}
-                        className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none 
-                                   focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-                      >
-                        {categories.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Order Details */}
-                  <div>
-                    <label className="block text-sm font-semibold text-blue-900 mb-1">
-                      Order Details
-                    </label>
-                    <textarea
-                      name="orderDetails"
-                      value={formData.orderDetails}
-                      onChange={handleChange}
-                      placeholder="Describe the order..."
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none 
-                                 focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition h-28"
-                      required
-                    />
-                  </div>
-
-                  {/* Price */}
-                  <div>
-                    <label className="block text-sm font-semibold text-blue-900 mb-1">
-                      Price (UGX)
-                    </label>
-                    <input
-                      type="number"
-                      name="price"
-                      value={formData.price === 0 ? "" : formData.price}
-                      onChange={handleChange}
-                      placeholder="Enter price"
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none 
-                                 focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-                      required
-                    />
-                  </div>
-
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    className="w-full bg-blue-600 py-3 rounded-xl text-white font-semibold hover:bg-blue-700 transition"
-                  >
-                    Submit Order
-                  </button>
-                </form>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* FILTERS */}
-        <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-blue-400 mb-8 max-w-7xl mx-auto">
-          <h3 className="text-lg font-semibold text-blue-900 mb-6">Search & Filter</h3>
-
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-end">
-            <input
-              type="text"
-              placeholder="Search by client or order..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-            />
-
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value as any)}
-              className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-            >
-              <option value="All">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="number"
-              placeholder="Min Price"
-              value={filterMinPrice}
-              onChange={(e) =>
-                setFilterMinPrice(e.target.value === "" ? "" : Number(e.target.value))
-              }
-              className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-            />
-
-            <input
-              type="number"
-              placeholder="Max Price"
-              value={filterMaxPrice}
-              onChange={(e) =>
-                setFilterMaxPrice(e.target.value === "" ? "" : Number(e.target.value))
-              }
-              className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-600 transition"
-            />
-
-            {/* <button
-              onClick={resetFilters}
-              className="w-full lg:w-auto px-4 py-3 rounded-lg border border-blue-500 bg-blue-100 hover:bg-blue-200 text-blue-900 font-semibold transition"
-            >
-              Reset
-            </button> */}
+      {/* TODAY'S STATS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Today's Sales</span>
+            <span className="stat-icon is-success"><Banknote size={19} /></span>
           </div>
-
-          <p className="mt-4 text-sm text-blue-900">
-            Showing <strong>{filteredOrders.length}</strong> of <strong>{orders.length}</strong> orders
-          </p>
+          <div className="stat-value">UGX {todayStats.sales.toLocaleString()}</div>
         </div>
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Today's Orders</span>
+            <span className="stat-icon is-orange"><ReceiptText size={19} /></span>
+          </div>
+          <div className="stat-value">{todayStats.count}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Open Orders</span>
+            <span className="stat-icon is-warning"><Utensils size={19} /></span>
+          </div>
+          <div className="stat-value">{todayStats.openCount}</div>
+        </div>
+      </div>
 
-        {/* ORDERS TABLE */}
-        <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-blue-400">
-          <h2 className="text-xl font-semibold mb-6 text-blue-900">Recent Orders</h2>
+      {/* MODAL */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => { setOpen(false); setFormData(initialFormData); }}
+          >
+            <motion.div
+              className="modal-panel max-w-2xl"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="New order"
+            >
+              <div className="modal-header">
+                <h2 className="modal-title">New Order</h2>
+                <button
+                  className="icon-btn"
+                  onClick={() => { setOpen(false); setFormData(initialFormData); }}
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-          <div className="overflow-hidden border border-blue-300 rounded-xl">
-            <table className="w-full text-left">
-              <thead className="bg-blue-100 text-blue-900">
-                <tr>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Client</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Phone</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Order</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Category</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Price</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium">Date</th>
-                  <th className="px-4 py-3 border-b border-blue-300 font-medium text-center">Receipt</th>
-                </tr>
-              </thead>
+              {/* FORM */}
+              <form className="p-6 space-y-5" onSubmit={handleSubmit}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label">Client name<span className="req">*</span></label>
+                    <input type="text" name="clientName" value={formData.clientName} onChange={handleChange} placeholder="Enter client name" className="input" required />
+                  </div>
+                  <div>
+                    <label className="field-label">Phone number</label>
+                    <input type="tel" name="clientPhoneNumber" value={formData.clientPhoneNumber ?? ""} onChange={handleChange} placeholder="+256 7xx xxx xxx" className="input" />
+                  </div>
+                  <div>
+                    <label className="field-label">Category</label>
+                    <select name="category" value={formData.category} onChange={handleChange} className="select">
+                      {categories.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">Price (UGX)<span className="req">*</span></label>
+                    <input type="number" name="price" value={formData.price === 0 ? "" : formData.price} onChange={handleChange} placeholder="Enter price" className="input" required />
+                  </div>
+                  <div>
+                    <label className="field-label">Payment method</label>
+                    <select name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="select">
+                      {paymentMethods.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-              <tbody>
-                {filteredOrders.length ? (
-                  filteredOrders.map((o, index) => (
-                    <tr
-                      key={o.id}
-                      className={`border-b hover:bg-blue-50 transition ${
-                        index % 2 === 0 ? "bg-white" : "bg-blue-50/50"
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-blue-900">{o.clientName}</td>
-                      <td className="px-4 py-3 text-blue-900">
-                        {o.clientPhoneNumber || "-"}
+                <div>
+                  <label className="field-label">Order details<span className="req">*</span></label>
+                  <textarea name="orderDetails" value={formData.orderDetails} onChange={handleChange} placeholder="Describe the order…" className="textarea" required />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-1">
+                  <button type="button" className="btn btn-secondary" onClick={() => { setOpen(false); setFormData(initialFormData); }}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Submit Order</button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* FILTERS */}
+      <div className="filter-bar">
+        <h3 className="section-title mb-3">Search &amp; filter</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="search-wrap">
+            <Search size={16} />
+            <input type="text" aria-label="Search orders" placeholder="Search by client or order…" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
+          </div>
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value as any)} className="select" aria-label="Category">
+            <option value="All">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="select" aria-label="Order status">
+            <option value="All">All statuses</option>
+            <option value="Open">Open</option>
+            <option value="Served">Served</option>
+            <option value="Paid">Paid</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <p className="mt-3 text-sm muted">
+          Showing <strong className="text-slate-700">{filteredOrders.length}</strong> of <strong className="text-slate-700">{orders.length}</strong> orders
+        </p>
+      </div>
+
+      {/* ORDERS TABLE */}
+      <div className="card card-pad">
+        <h2 className="section-title mb-4">Recent Orders</h2>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Order</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Payment</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th className="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 8 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: j === 1 ? 140 : 70 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredOrders.length ? (
+                filteredOrders.map((o) => {
+                  const st = orderStatusOf(o);
+                  return (
+                    <tr key={o.id}>
+                      <td className="font-medium text-slate-800">{o.clientName}</td>
+                      <td className="max-w-xs truncate">{o.orderDetails}</td>
+                      <td>
+                        <span className={`badge ${categoryBadge[o.category]}`}>{o.category}</span>
                       </td>
-
-                      <td className="px-4 py-3 text-blue-900">{o.orderDetails}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-1 rounded-full text-sm font-medium ${categoryColors[o.category]}`}
-                        >
-                          {o.category}
-                        </span>
+                      <td className="font-medium">{o.price.toLocaleString()} UGX</td>
+                      <td className="text-slate-500">{o.paymentMethod ?? "-"}</td>
+                      <td>
+                        <span className={`badge ${statusBadge[st]}`}>{st}</span>
                       </td>
-                      <td className="px-4 py-3 text-blue-900">{o.price.toLocaleString()} UGX</td>
-                      <td className="px-4 py-3 text-blue-900">{new Date(o.createdAt).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => printReceipt(o)}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                        >
-                          Print
-                        </button>
+                      <td className="text-slate-500 whitespace-nowrap">{new Date(o.createdAt).toLocaleString()}</td>
+                      <td>
+                        <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                          {st === "Open" && (
+                            <>
+                              <button onClick={() => setStatus(o, "Served")} className="btn btn-secondary btn-sm" title="Mark as served">
+                                <CheckCircle2 size={14} /> Served
+                              </button>
+                              <button onClick={() => setStatus(o, "Cancelled")} className="btn btn-ghost btn-sm" title="Cancel order">
+                                <Ban size={14} />
+                              </button>
+                            </>
+                          )}
+                          {(st === "Open" || st === "Served") && (
+                            <button onClick={() => setStatus(o, "Paid")} className="btn btn-success btn-sm" title="Mark as paid">
+                              <Banknote size={14} /> Paid
+                            </button>
+                          )}
+                          <button onClick={() => printReceipt(o)} className="btn btn-ghost btn-sm" title="Print receipt">
+                            <Printer size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="text-center py-8 text-blue-900">
-                      No orders match your filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><Utensils size={24} /></div>
+                      <p className="empty-title">No orders found</p>
+                      <p className="empty-desc">
+                        {orders.length ? "No orders match your current filters." : "Add your first order and it will appear here."}
+                      </p>
+                      {!orders.length && (
+                        <button className="btn btn-primary btn-sm mt-2" onClick={() => setOpen(true)}>
+                          <Plus size={15} /> New Order
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-
       </div>
     </div>
   );

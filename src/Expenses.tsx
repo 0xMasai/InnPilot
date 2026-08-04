@@ -5,12 +5,11 @@ import {
   collection,
   addDoc,
   onSnapshot,
-  query,
-  where,
   Timestamp,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { Plus, X } from "lucide-react";
+import { logAction } from "./lib/audit";
+import { Plus, X, Printer, Search, PieChart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Expense {
@@ -28,6 +27,7 @@ const departments = ["Kitchen", "Cleaning", "Maintenance", "Front Desk", "Other"
 export default function ExpensesDashboard() {
   const [open, setOpen] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("All");
   const [minAmount, setMinAmount] = useState<number | "">("");
@@ -42,15 +42,10 @@ export default function ExpensesDashboard() {
     userId: auth.currentUser?.uid || "",
   });
 
-  /* 🔥 FIRESTORE LISTENER */
+  /* FIRESTORE LISTENER — shared operational data: all staff see all
+     expenses (userId still recorded on each entry for accountability). */
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const q = query(
-      collection(db, "expenses"),
-      where("userId", "==", user.uid)
-    );
+    const q = collection(db, "expenses");
 
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map((doc) => {
@@ -65,6 +60,7 @@ export default function ExpensesDashboard() {
       setExpenses(
         data.sort((a, b) => b.expenseDate.localeCompare(a.expenseDate))
       );
+      setLoading(false);
     });
 
     return () => unsub();
@@ -81,6 +77,8 @@ export default function ExpensesDashboard() {
     return matchSearch && matchDept && matchMin && matchMax;
   });
 
+  const totalFiltered = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
@@ -96,7 +94,7 @@ export default function ExpensesDashboard() {
     if (!formData.department || !formData.description || !formData.amount)
       return alert("Fill required fields");
 
-    await addDoc(collection(db, "expenses"), {
+    const ref = await addDoc(collection(db, "expenses"), {
       department: formData.department,
       description: formData.description,
       amount: Number(formData.amount),
@@ -104,6 +102,7 @@ export default function ExpensesDashboard() {
       userId: user.uid,
       createdAt: Timestamp.now(),
     });
+    logAction("Expense recorded", "expense", ref.id, `${formData.department} · UGX ${Number(formData.amount).toLocaleString()}`);
 
     setOpen(false);
     setFormData({
@@ -119,7 +118,7 @@ export default function ExpensesDashboard() {
   const printExpense = (e: Expense) => {
     const win = window.open("", "PRINT", "width=400,height=600");
     if (!win) return;
-    win.document.write(`<h2>Jamiz Hotel</h2>`);
+    win.document.write(`<h2>Hotel Management</h2>`);
     win.document.write(`<h3>Expense Voucher</h3>`);
     win.document.write(`<p><b>Department:</b> ${e.department}</p>`);
     win.document.write(`<p><b>Description:</b> ${e.description}</p>`);
@@ -130,182 +129,170 @@ export default function ExpensesDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-100 to-gray-200 p-6">
-      <div className="max-w-7xl mx-auto">
-
-        {/* HEADER */}
-        <div className="flex justify-between items-center mb-10">
-          <h2 className="text-4xl font-bold text-gray-900">Expenses Dashboard</h2>
-          <button
-            onClick={() => setOpen(true)}
-            className="flex gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl"
-          >
-            <Plus /> Add Expense
-          </button>
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Expenses</h2>
+          <p className="page-subtitle">Track and review operational spending.</p>
         </div>
+        <button onClick={() => setOpen(true)} className="btn btn-primary">
+          <Plus className="w-4 h-4" /> New Expense
+        </button>
+      </div>
 
-        {/* MODAL */}
-        <AnimatePresence>
-          {open && (
+      {/* MODAL */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setOpen(false)}
+          >
             <motion.div
-              className="fixed inset-0 bg-black/40 z-50 flex justify-center items-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              className="modal-panel max-w-xl"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="New expense"
             >
-              <motion.div
-                className="bg-white p-8 rounded-2xl w-full max-w-xl relative"
-                initial={{ y: 40, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 40, opacity: 0 }}
-              >
-                <button
-                  onClick={() => setOpen(false)}
-                  className="absolute top-4 right-4"
-                >
-                  <X />
+              <div className="modal-header">
+                <h3 className="modal-title">New Expense</h3>
+                <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close">
+                  <X className="w-5 h-5" />
                 </button>
+              </div>
 
-                <h3 className="text-2xl font-bold mb-6 text-gray-800">New Expense</h3>
-
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <select
-                    name="department"
-                    value={formData.department}
-                    onChange={handleChange}
-                    className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200"
-                  >
-                    <option value="" disabled>Select Department</option>
-                    {departments.map(d => (
+              <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <div>
+                  <label className="field-label">Department<span className="req">*</span></label>
+                  <select name="department" value={formData.department} onChange={handleChange} className="select">
+                    <option value="" disabled>Select department</option>
+                    {departments.map((d) => (
                       <option key={d}>{d}</option>
                     ))}
                   </select>
+                </div>
 
-                  <input
-                    name="description"
-                    placeholder="Description"
-                    value={formData.description}
-                    onChange={handleChange}
-                    className="p-3 w-full h-28 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900 outline-none focus:ring-2 focus:ring-blue-200"
-                  />
+                <div>
+                  <label className="field-label">Description<span className="req">*</span></label>
+                  <input name="description" placeholder="What was this expense for?" value={formData.description} onChange={handleChange} className="input" />
+                </div>
 
-                  <input
-                    type="number"
-                    name="amount"
-                    placeholder="Amount (UGX)"
-                    value={formData.amount}
-                    onChange={handleChange}
-                    className="p-3 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900"
-                  />
+                <div>
+                  <label className="field-label">Amount (UGX)<span className="req">*</span></label>
+                  <input type="number" name="amount" placeholder="0" value={formData.amount} onChange={handleChange} className="input" />
+                </div>
 
-                  <textarea
-                    name="notes"
-                    placeholder="Notes"
-                    value={formData.notes}
-                    onChange={handleChange}
-                    className="p-3 w-full h-28 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900 outline-none focus:ring-2 focus:ring-blue-200"
-                  />
+                <div>
+                  <label className="field-label">Notes</label>
+                  <textarea name="notes" placeholder="Additional details" value={formData.notes} onChange={handleChange} className="textarea" />
+                </div>
 
-                  <button className="w-full bg-blue-600 text-white py-3 rounded-xl">
-                    Save Expense
-                  </button>
-                </form>
-              </motion.div>
+                <div className="flex justify-end gap-3 pt-1">
+                  <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Save Expense</button>
+                </div>
+              </form>
             </motion.div>
-          )}
-        </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* FILTER */}
-        <div className="bg-white p-6 rounded-xl mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <input
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-          />
-          <select
-            value={filterDept}
-            onChange={(e) => setFilterDept(e.target.value)}
-            className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-          >
-            <option value="All">All Departments</option>
-            {departments.map(d => <option key={d}>{d}</option>)}
-          </select>
-          <input
-            type="number"
-            placeholder="Min Amount"
-            value={minAmount}
-            onChange={(e) => setMinAmount(e.target.value === "" ? "" : Number(e.target.value))}
-            className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-          />
-          <input
-            type="number"
-            placeholder="Max Amount"
-            value={maxAmount}
-            onChange={(e) => setMaxAmount(e.target.value === "" ? "" : Number(e.target.value))}
-            className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-          />
-          <p className="mt-4 text-sm text-blue-900">
-            Showing <strong>{filteredExpenses.length}</strong> of{" "}
-            <strong>{expenses.length}</strong> expenses
-          </p>
+      {/* SUMMARY + FILTER */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Filtered Total</span>
+            <span className="stat-icon is-warning"><PieChart size={19} /></span>
+          </div>
+          <div className="stat-value" style={{ fontSize: "1.4rem" }}>{totalFiltered.toLocaleString()} UGX</div>
         </div>
 
-        {/* TABLE */}
-        <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-blue-400">
-          <h2 className="text-xl font-semibold mb-6 text-blue-900">Recent Expenses</h2>
-         <div className="overflow-hidden border border-blue-300 rounded-xl">
-          <table className="w-full text-left">
-            <thead className="bg-blue-100 text-blue-900">
+        <div className="filter-bar lg:col-span-3">
+          <h3 className="section-title mb-3">Search &amp; filter</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="search-wrap">
+              <Search size={16} />
+              <input aria-label="Search expenses" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
+            </div>
+            <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="select" aria-label="Department">
+              <option value="All">All departments</option>
+              {departments.map((d) => <option key={d}>{d}</option>)}
+            </select>
+            <input type="number" placeholder="Min amount" value={minAmount} onChange={(e) => setMinAmount(e.target.value === "" ? "" : Number(e.target.value))} className="input" aria-label="Minimum amount" />
+            <input type="number" placeholder="Max amount" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value === "" ? "" : Number(e.target.value))} className="input" aria-label="Maximum amount" />
+          </div>
+          <p className="mt-3 text-sm muted">
+            Showing <strong className="text-slate-700">{filteredExpenses.length}</strong> of <strong className="text-slate-700">{expenses.length}</strong> expenses
+          </p>
+        </div>
+      </div>
+
+      {/* TABLE */}
+      <div className="card card-pad">
+        <h2 className="section-title mb-4">Recent Expenses</h2>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3 border-b">Department</th>
-                <th className="px-4 py-3 border-b">Description</th>
-                <th className="px-4 py-3 border-b">Amount</th>
-                <th className="px-4 py-3 border-b">Date</th>
-                <th className="px-4 py-3 border-b text-center">Receipt</th>
+                <th>Department</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Date</th>
+                <th className="text-center">Receipt</th>
               </tr>
             </thead>
-
             <tbody>
-              {filteredExpenses.length ? (
-                filteredExpenses.map((e, i) => (
-                  <tr
-                    key={e.id}
-                    className={`border-b hover:bg-blue-50 ${
-                      i % 2 === 0 ? "bg-white" : "bg-blue-50/50"
-                    }`}
-                  >
-                    <td className="px-4 py-3 text-blue-900">{e.department}</td>
-                    <td className="px-4 py-3 text-blue-900">{e.description}</td>
-                    <td className="px-4 py-3 text-blue-900">
-                      {Number(e.amount).toLocaleString()} UGX
-                    </td>
-                    <td className="px-4 py-3 text-blue-900">
-                      {new Date(e.expenseDate).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => printExpense(e)}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-                      >
-                        Print
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 5 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: j === 1 ? 140 : 80 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredExpenses.length ? (
+                filteredExpenses.map((e) => (
+                  <tr key={e.id}>
+                    <td><span className="badge badge-neutral badge-plain">{e.department}</span></td>
+                    <td className="text-slate-700">{e.description}</td>
+                    <td className="font-medium">{Number(e.amount).toLocaleString()} UGX</td>
+                    <td className="text-slate-500 whitespace-nowrap">{new Date(e.expenseDate).toLocaleString()}</td>
+                    <td className="text-center">
+                      <button onClick={() => printExpense(e)} className="btn btn-secondary btn-sm">
+                        <Printer size={15} /> Print
                       </button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-blue-900">
-                    No expenses match your filters.
+                  <td colSpan={5}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><PieChart size={24} /></div>
+                      <p className="empty-title">No expenses found</p>
+                      <p className="empty-desc">
+                        {expenses.length ? "No expenses match your current filters." : "Record your first expense and it will appear here."}
+                      </p>
+                      {!expenses.length && (
+                        <button className="btn btn-primary btn-sm mt-2" onClick={() => setOpen(true)}>
+                          <Plus size={15} /> New Expense
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-
-        </div>
-
       </div>
     </div>
   );

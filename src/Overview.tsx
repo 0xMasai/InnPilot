@@ -1,7 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import CountUp from "react-countup";
-import { BedDouble, Utensils, PieChart, DollarSign } from "lucide-react";
+import {
+  BedDouble,
+  Utensils,
+  Briefcase,
+  Wallet,
+  TrendingUp,
+  Scale,
+  DoorOpen,
+  Clock,
+} from "lucide-react";
 import {
   LineChart,
   Line,
@@ -14,234 +24,286 @@ import {
   Bar,
   Legend,
 } from "recharts";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
+import { COLLECTIONS } from "./lib/collections";
 import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  Timestamp
-} from "firebase/firestore";
-import { db, auth } from "../firebase";
+  computeMetrics,
+  dailySeries,
+  getRange,
+  type DatePreset,
+  type MetricsInput,
+} from "./lib/metrics";
 
-interface DailyData {
-  day: string;
-  expenses?: number;
-  meals?: number;
-  bookings?: number;
-}
+const PRESETS: { key: DatePreset; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "This Week" },
+  { key: "month", label: "This Month" },
+  { key: "lastMonth", label: "Last Month" },
+  { key: "all", label: "All Time" },
+];
+
+const ugx = (n: number) => `UGX ${n.toLocaleString()}`;
 
 export default function OverviewDashboard() {
-  const [summary, setSummary] = useState({
-    totalExpenses: 0,
-    totalMeals: 0,
-    totalBookings: 0,
+  const [data, setData] = useState<MetricsInput>({
+    bookings: [],
+    orders: [],
+    events: [],
+    expenses: [],
+    rooms: [],
   });
+  const [preset, setPreset] = useState<DatePreset>("today");
 
-  const [expensesData, setExpensesData] = useState<DailyData[]>([]);
-  const [mealsData, setMealsData] = useState<DailyData[]>([]);
-  const [bookingsData, setBookingsData] = useState<DailyData[]>([]);
-
-  // Convert Firestore timestamp or strings safely
-  const toDateSafe = (ts: any) => {
-    if (!ts) return null;
-    if (ts instanceof Timestamp) return ts.toDate();
-    const d = new Date(ts);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
+  // Shared operational data: the overview aggregates the whole hotel.
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    const userId = user.uid;
-
-    const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-    const expensesTrend: DailyData[] = weekdays.map((d) => ({ day: d, expenses: 0 }));
-    const mealsTrend: DailyData[] = weekdays.map((d) => ({ day: d, meals: 0 }));
-    const bookingsTrend: DailyData[] = weekdays.map((d) => ({ day: d, bookings: 0 }));
-
-    // --- EXPENSES REAL-TIME ---
-    const unsubscribeExpenses = onSnapshot(
-      query(collection(db, "expenses"), where("userId", "==", userId)),
-      (snap) => {
-        let totalExpenses = 0;
-
-        snap.forEach((doc) => {
-          const data = doc.data();
-          const amount = Number(data.amount || 0);
-          totalExpenses += amount;
-
-          const dt = toDateSafe(data.timestamp);
-          if (!dt) return;
-
-          const index = (dt.getDay() + 6) % 7;
-          expensesTrend[index].expenses! += amount;
-        });
-
-        setSummary((s) => ({ ...s, totalExpenses }));
-        setExpensesData([...expensesTrend]);
-      }
-    );
-
-    // --- MEALS REAL-TIME ---
-    const unsubscribeMeals = onSnapshot(
-      query(collection(db, "restaurant"), where("userId", "==", userId)),
-      (snap) => {
-        let totalMeals = snap.size;
-
-        snap.forEach((doc) => {
-          const dt = toDateSafe(doc.data().timestamp);
-          if (!dt) return;
-
-          const index = (dt.getDay() + 6) % 7;
-          mealsTrend[index].meals! += 1;
-        });
-
-        setSummary((s) => ({ ...s, totalMeals }));
-        setMealsData([...mealsTrend]);
-      }
-    );
-
-    // --- ACCOMMODATION REAL-TIME ---
-    const unsubscribeAccommodation = onSnapshot(
-      query(collection(db, "accomodation"), where("userId", "==", userId)),
-      (snap) => {
-        let totalBookings = snap.size;
-
-        snap.forEach((doc) => {
-          const dt = toDateSafe(doc.data().checkIn);
-          if (!dt) return;
-
-          const index = (dt.getDay() + 6) % 7;
-          bookingsTrend[index].bookings! += 1;
-        });
-
-        setSummary((s) => ({ ...s, totalBookings }));
-        setBookingsData([...bookingsTrend]);
-      }
-    );
-
-    return () => {
-      unsubscribeExpenses();
-      unsubscribeMeals();
-      unsubscribeAccommodation();
-    };
+    const subs = [
+      onSnapshot(collection(db, COLLECTIONS.BOOKINGS), (snap) =>
+        setData((p) => ({ ...p, bookings: snap.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(collection(db, COLLECTIONS.RESTAURANT), (snap) =>
+        setData((p) => ({ ...p, orders: snap.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(collection(db, COLLECTIONS.CONFERENCE), (snap) =>
+        setData((p) => ({ ...p, events: snap.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(collection(db, COLLECTIONS.EXPENSES), (snap) =>
+        setData((p) => ({ ...p, expenses: snap.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(collection(db, COLLECTIONS.ROOMS), (snap) =>
+        setData((p) => ({ ...p, rooms: snap.docs.map((d) => d.data()) }))
+      ),
+    ];
+    return () => subs.forEach((u) => u());
   }, []);
 
-  // --- KPI CARDS ---
-  const summaryCards = [
+  const range = useMemo(() => getRange(preset), [preset]);
+  const metrics = useMemo(() => computeMetrics(data, range), [data, range]);
+  const trend = useMemo(() => dailySeries(data, range), [data, range]);
+
+  const departmentData = [
+    { name: "Accommodation", revenue: metrics.accommodationRevenue },
+    { name: "Restaurant", revenue: metrics.restaurantRevenue },
+    { name: "Conference", revenue: metrics.conferenceRevenue },
+  ];
+
+  const primaryCards: {
+    title: string;
+    value: number;
+    prefix?: string;
+    suffix?: string;
+    icon: ReactNode;
+    tone: string;
+    note?: string;
+  }[] = [
     {
-      title: "Total Expenses",
-      value: summary.totalExpenses,
+      title: `Revenue (${range.label})`,
+      value: metrics.totalRevenue,
       prefix: "UGX ",
-      icon: <DollarSign size={20} />,
-      gradient: "from-sky-500 to-blue-600",
+      icon: <TrendingUp size={19} />,
+      tone: "is-success",
     },
     {
-      title: "Total Meals",
-      value: summary.totalMeals,
-      icon: <Utensils size={20} />,
-      gradient: "from-orange-500 to-yellow-500",
+      title: `Expenses (${range.label})`,
+      value: metrics.totalExpenses,
+      prefix: "UGX ",
+      icon: <Wallet size={19} />,
+      tone: "is-warning",
     },
     {
-      title: "Total Bookings",
-      value: summary.totalBookings,
-      icon: <BedDouble size={20} />,
-      gradient: "from-purple-500 to-indigo-600",
+      // Not "Profit": only reflects revenue and expenses recorded here.
+      title: "Net Operating Result",
+      value: metrics.netOperatingResult,
+      prefix: "UGX ",
+      icon: <Scale size={19} />,
+      tone: metrics.netOperatingResult >= 0 ? "is-success" : "is-warning",
+    },
+    {
+      title: "Occupancy",
+      value: metrics.occupancy.rate ?? 0,
+      suffix: metrics.occupancy.rate === null ? "" : "%",
+      icon: <DoorOpen size={19} />,
+      tone: "is-purple",
+      note:
+        metrics.occupancy.rate === null
+          ? "Register rooms to track occupancy"
+          : `${metrics.occupancy.occupied} of ${metrics.occupancy.totalRooms} rooms occupied`,
+    },
+  ];
+
+  const departmentCards = [
+    {
+      title: "Accommodation",
+      value: metrics.accommodationRevenue,
+      count: `${metrics.bookingsCount} booking${metrics.bookingsCount === 1 ? "" : "s"}`,
+      icon: <BedDouble size={19} />,
+      tone: "is-purple",
+    },
+    {
+      title: "Restaurant",
+      value: metrics.restaurantRevenue,
+      count: `${metrics.ordersCount} order${metrics.ordersCount === 1 ? "" : "s"}`,
+      icon: <Utensils size={19} />,
+      tone: "is-orange",
+    },
+    {
+      title: "Conference",
+      value: metrics.conferenceRevenue,
+      count: `${metrics.eventsCount} event${metrics.eventsCount === 1 ? "" : "s"}`,
+      icon: <Briefcase size={19} />,
+      tone: "is-success",
+    },
+    {
+      title: "Pending Payments",
+      value: metrics.pendingPayments.amount,
+      count: `${metrics.pendingPayments.count} booking${metrics.pendingPayments.count === 1 ? "" : "s"} unpaid`,
+      icon: <Clock size={19} />,
+      tone: "is-warning",
     },
   ];
 
   return (
-    <div className="p-6 space-y-8">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 leading-snug">
-          Overview
-        </h2>
+    <div className="space-y-6">
+      {/* Header + date range switcher */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Overview</h2>
+          <p className="page-subtitle">
+            Hotel-wide performance · {range.label.toLowerCase()}
+          </p>
+        </div>
+        <div className="flex rounded-lg border border-slate-200 bg-white p-1 gap-1" role="tablist" aria-label="Date range">
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              role="tab"
+              aria-selected={preset === p.key}
+              onClick={() => setPreset(p.key)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                preset === p.key
+                  ? "bg-blue-600 text-white"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-        {summaryCards.map((item, idx) => (
-          <motion.div key={idx} whileHover={{ scale: 1.05 }}>
-            <div
-              className={`bg-linear-to-r ${item.gradient} rounded-2xl p-5 shadow-lg text-white flex flex-col justify-between h-36`}
-            >
-              <div className="flex items-center gap-2 text-sm font-medium">
-                {item.icon}
-                <span>{item.title}</span>
-              </div>
-              <div className="text-3xl font-bold">
-                <CountUp
-                  start={0}
-                  end={item.value}
-                  duration={1.5}
-                  separator=","
-                  prefix={item.prefix || ""}
-                />
-              </div>
+      {/* Primary KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {primaryCards.map((item, idx) => (
+          <motion.div
+            key={item.title}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: idx * 0.05 }}
+            className="stat-card"
+          >
+            <div className="stat-top">
+              <span className="stat-label">{item.title}</span>
+              <span className={`stat-icon ${item.tone}`}>{item.icon}</span>
             </div>
+            <div className="stat-value">
+              <CountUp
+                start={0}
+                end={item.value}
+                duration={1.2}
+                separator=","
+                prefix={item.prefix || ""}
+                suffix={item.suffix || ""}
+              />
+            </div>
+            {item.note && <p className="text-xs muted mt-1">{item.note}</p>}
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Department cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {departmentCards.map((item, idx) => (
+          <motion.div
+            key={item.title}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 + idx * 0.05 }}
+            className="stat-card"
+          >
+            <div className="stat-top">
+              <span className="stat-label">{item.title}</span>
+              <span className={`stat-icon ${item.tone}`}>{item.icon}</span>
+            </div>
+            <div className="stat-value" style={{ fontSize: 20 }}>
+              {ugx(item.value)}
+            </div>
+            <p className="text-xs muted mt-1">{item.count}</p>
           </motion.div>
         ))}
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Expenses */}
-        <div className="lg:col-span-3 bg-white rounded-2xl shadow-md p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <PieChart size={20} className="text-blue-600" />
-            <span className="font-semibold text-gray-700">Expense Trend (Last 7 Days)</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Revenue vs Expenses */}
+        <div className="card card-pad">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={18} className="text-blue-600" />
+            <span className="section-title">Revenue vs Expenses</span>
+            <span className="text-xs muted ml-auto">{range.label}</span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={expensesData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <Tooltip />
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef1f4" vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "#e5e8ee" }} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={64}
+                tickFormatter={(v) => Number(v).toLocaleString()}
+              />
+              <Tooltip formatter={(v: any) => ugx(Number(v))} />
+              <Legend />
               <Line
                 type="monotone"
+                name="Revenue"
+                dataKey="revenue"
+                stroke="#16a34a"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: "#16a34a" }}
+                activeDot={{ r: 5 }}
+              />
+              <Line
+                type="monotone"
+                name="Expenses"
                 dataKey="expenses"
-                stroke="#2563eb"
-                strokeWidth={3}
-                dot={{ r: 5 }}
+                stroke="#dc2626"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: "#dc2626" }}
+                activeDot={{ r: 5 }}
               />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Meals */}
-        <div className="bg-white rounded-2xl shadow-md p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Utensils size={20} className="text-orange-500" />
-            <span className="font-semibold text-gray-700">Meals Served (Last 7 Days)</span>
+        {/* Revenue by department */}
+        <div className="card card-pad">
+          <div className="flex items-center gap-2 mb-4">
+            <Briefcase size={18} className="text-purple-600" />
+            <span className="section-title">Revenue by Department</span>
+            <span className="text-xs muted ml-auto">{range.label}</span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={mealsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="meals" fill="#f97316" radius={[5, 5, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Bookings */}
-        <div className="bg-white rounded-2xl shadow-md p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <BedDouble size={20} className="text-purple-600" />
-            <span className="font-semibold text-gray-700">Room Bookings (Last 7 Days)</span>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={bookingsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="bookings" fill="#a855f7" radius={[5, 5, 0, 0]} />
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={departmentData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef1f4" vertical={false} />
+              <XAxis dataKey="name" tickLine={false} axisLine={{ stroke: "#e5e8ee" }} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={64}
+                tickFormatter={(v) => Number(v).toLocaleString()}
+              />
+              <Tooltip formatter={(v: any) => ugx(Number(v))} />
+              <Bar dataKey="revenue" name="Revenue" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={56} />
             </BarChart>
           </ResponsiveContainer>
         </div>

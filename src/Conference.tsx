@@ -5,14 +5,13 @@ import {
   collection,
   addDoc,
   onSnapshot,
-  query,
-  where,
   Timestamp,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
-// import Flatpickr from "react-flatpickr";
-import "flatpickr/dist/flatpickr.min.css";
-import { Plus, X } from "lucide-react";
+import { COLLECTIONS } from "./lib/collections";
+import { logAction } from "./lib/audit";
+import { Plus, X, Printer, Search, Briefcase, Users } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Booking {
@@ -29,10 +28,22 @@ interface Booking {
   userId: string;
 }
 
-const rooms = ["Room A", "Room B", "Room C", "Room D"];
+interface ConferenceRoom {
+  id?: string;
+  name: string;
+  capacity?: number;
+  hourlyRate?: number;
+}
+
+/** Fallback until the hotel registers its own rooms. */
+const DEFAULT_ROOMS = ["Room A", "Room B", "Room C", "Room D"];
 
 export default function ConferenceRoomDashboard() {
   const [open, setOpen] = useState(false);
+  const [roomModalOpen, setRoomModalOpen] = useState(false);
+  const [roomList, setRoomList] = useState<ConferenceRoom[]>([]);
+  const [roomForm, setRoomForm] = useState<ConferenceRoom>({ name: "" });
+  const [roomError, setRoomError] = useState("");
   const [formData, setFormData] = useState<Booking>({
     organizerName: "",
     email: "",
@@ -47,11 +58,7 @@ export default function ConferenceRoomDashboard() {
   });
 
   const [bookings, setBookings] = useState<Booking[]>([]);
-  // const [availability, setAvailability] = useState({
-  //   total: rooms.length,
-  //   occupied: 0,
-  //   free: rooms.length,
-  // });
+  const [loading, setLoading] = useState(true);
 
   /* 🔍 SEARCH & FILTER STATE */
   const [search, setSearch] = useState("");
@@ -59,15 +66,10 @@ export default function ConferenceRoomDashboard() {
   const [filterMinPrice, setFilterMinPrice] = useState<number | "">("");
   const [filterMaxPrice, setFilterMaxPrice] = useState<number | "">("");
 
-  // Firestore listener
+  // Firestore listener — shared operational data: every staff member sees
+  // all conference bookings (userId still recorded for accountability).
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const bookingsQuery = query(
-      collection(db, "conferenceRooms"),
-      where("userId", "==", user.uid)
-    );
+    const bookingsQuery = collection(db, "conferenceRooms");
 
     const unsub = onSnapshot(bookingsQuery, (snapshot) => {
       const data = snapshot.docs.map((doc) => {
@@ -80,25 +82,49 @@ export default function ConferenceRoomDashboard() {
       });
 
       setBookings(data);
-
-      // Count currently occupied rooms based on duration and createdAt
-      // const now = new Date();
-      // const occupiedRooms = data.filter((b) => {
-      //   const start = new Date(b.startTime);
-      //   const durationMs = Number(b.durationHours) * 60 * 60 * 1000;
-      //   const end = new Date(start.getTime() + durationMs);
-      //   return now >= start && now <= end;
-      // }).length;
-
-      // setAvailability({
-      //   total: rooms.length,
-      //   occupied: occupiedRooms,
-      //   free: rooms.length - occupiedRooms,
-      // });
+      setLoading(false);
     });
 
     return () => unsub();
   }, []);
+
+  // Conference room inventory (falls back to defaults until rooms are added).
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, COLLECTIONS.CONFERENCE_SPACES), (snap) => {
+      const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as ConferenceRoom) }));
+      data.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      setRoomList(data);
+    });
+    return () => unsub();
+  }, []);
+
+  const rooms = roomList.length ? roomList.map((r) => r.name) : DEFAULT_ROOMS;
+
+  // Add a conference room to the inventory
+  const handleRoomSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setRoomError("");
+    const name = roomForm.name.trim();
+    if (!name) return setRoomError("Enter a room name.");
+    if (roomList.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
+      return setRoomError(`"${name}" already exists.`);
+    }
+    try {
+      const ref = await addDoc(collection(db, COLLECTIONS.CONFERENCE_SPACES), {
+        name,
+        capacity: Number(roomForm.capacity) || 0,
+        hourlyRate: Number(roomForm.hourlyRate) || 0,
+        createdAt: serverTimestamp(),
+        userId: auth.currentUser?.uid || "unknown",
+      });
+      logAction("Conference room added", "room", ref.id, name);
+      setRoomModalOpen(false);
+      setRoomForm({ name: "" });
+    } catch (err) {
+      console.error(err);
+      setRoomError("Failed to add room. Please try again.");
+    }
+  };
 
   // FILTER LOGIC
   const filteredBookings = bookings.filter((b) => {
@@ -124,9 +150,10 @@ export default function ConferenceRoomDashboard() {
       return alert("Please fill all required fields.");
 
     try {
-      await addDoc(collection(db, "conferenceRooms"), {
+      const ref = await addDoc(collection(db, "conferenceRooms"), {
         organizerName: formData.organizerName,
         email: formData.email,
+        phoneNumber: formData.phoneNumber ?? "",
         room: formData.room,
         attendees: Number(formData.attendees),
         durationHours: Number(formData.durationHours),
@@ -135,6 +162,7 @@ export default function ConferenceRoomDashboard() {
         userId: user.uid,
         createdAt: Timestamp.now(),
       });
+      logAction("Event booked", "event", ref.id, `${formData.organizerName} · ${formData.room} · UGX ${Number(formData.price).toLocaleString()}`);
 
       setOpen(false);
       setFormData({
@@ -160,7 +188,7 @@ export default function ConferenceRoomDashboard() {
     const start = new Date(b.startTime);
     const end = new Date(start.getTime() + Number(b.durationHours) * 60 * 60 * 1000);
     win.document.write(`<html><head><title>Booking Confirmation</title></head><body>`);
-    win.document.write(`<h2 style="font-family:sans-serif;">Welcome to Jamiz Hotel</h2>`);
+    win.document.write(`<h2 style="font-family:sans-serif;">Welcome to Our Hotel</h2>`);
     win.document.write(`<h3 style="font-family:sans-serif;">Conference Room Booking</h3>`);
     win.document.write(`<p><strong>Organizer:</strong> ${b.organizerName}</p>`);
     win.document.write(`<p><strong>Room:</strong> ${b.room}</p>`);
@@ -175,215 +203,285 @@ export default function ConferenceRoomDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-100 to-gray-200 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* HEADER */}
-        <div className="flex items-center justify-between mb-10">
-          <h2 className="text-4xl font-bold text-gray-900 tracking-tight">
-            Conference Room Dashboard
-          </h2>
-          <button
-            onClick={() => setOpen(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl shadow hover:bg-blue-700 transition-all"
-          >
-            <Plus className="w-5 h-5" /> Add Booking
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Conference</h2>
+          <p className="page-subtitle">Organize meeting spaces and event bookings.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setRoomModalOpen(true)} className="btn btn-secondary">
+            <Plus className="w-4 h-4" /> Add Room
+          </button>
+          <button onClick={() => setOpen(true)} className="btn btn-primary">
+            <Plus className="w-4 h-4" /> New Booking
           </button>
         </div>
+      </div>
 
-        {/* MODAL */}
-        <AnimatePresence>
-          {open && (
+      {/* ADD ROOM MODAL */}
+      <AnimatePresence>
+        {roomModalOpen && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setRoomModalOpen(false)}
+          >
             <motion.div
-              className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              className="modal-panel max-w-md"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Add conference room"
             >
-              <motion.div
-                className="bg-white rounded-2xl p-8 shadow-xl w-full max-w-2xl relative"
-                initial={{ y: 40, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 40, opacity: 0 }}
-              >
-                <button
-                  className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-                  onClick={() => setOpen(false)}
-                >
-                  <X className="w-6 h-6" />
+              <div className="modal-header">
+                <h2 className="modal-title">Add Conference Room</h2>
+                <button className="icon-btn" onClick={() => setRoomModalOpen(false)} aria-label="Close">
+                  <X className="w-5 h-5" />
                 </button>
+              </div>
 
-                <h2 className="text-2xl font-bold mb-6 text-gray-800">
-                  New Conference Booking
-                </h2>
-
-                <form className="space-y-6" onSubmit={handleSubmit}>
-                  {/* Organizer & Email */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <input
-                      type="text"
-                      name="organizerName"
-                      placeholder="Organizer Name"
-                      value={formData.organizerName}
-                      onChange={handleChange}
-                      required
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200"
-                    />
-                    <input
-                      type="email"
-                      name="email"
-                      placeholder="Email (optional)"
-                      value={formData.email}
-                      onChange={handleChange}
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200"
-                    />
-                    <input
-                      type="tel"
-                      name="phoneNumber"
-                      placeholder="Phone Number"
-                      value={formData.phoneNumber}
-                      onChange={handleChange}
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg"
-                    />
-                  </div>
-
-                  {/* Room & Duration/Price */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <select
-                      name="room"
-                      value={formData.room}
-                      onChange={handleChange}
-                      required
-                      className="p-3 w-full border-2 border-blue-500 bg-blue-50 text-blue-900 rounded-lg outline-none focus:ring-2 focus:ring-blue-200"
-                    >
-                      <option value="" disabled>Select Room</option>
-                      {rooms.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-
-                    <input
-                      type="number"
-                      name="durationHours"
-                      placeholder="Duration (hrs)"
-                      value={formData.durationHours}
-                      onChange={handleChange}
-                      className="p-3 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900"
-                    />
-                    <input
-                      type="number"
-                      name="price"
-                      placeholder="Price (UGX)"
-                      value={formData.price}
-                      onChange={handleChange}
-                      className="p-3 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900"
-                    />
-                  </div>
-
-                  {/* Notes */}
-                  <textarea
-                    name="notes"
-                    placeholder="Notes"
-                    value={formData.notes}
-                    onChange={handleChange}
-                    className="p-3 w-full h-28 border-2 border-blue-500 bg-blue-50 rounded-lg text-blue-900 outline-none focus:ring-2 focus:ring-blue-200"
+              <form className="p-6 space-y-5" onSubmit={handleRoomSubmit}>
+                <div>
+                  <label className="field-label">Room name<span className="req">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Boardroom, Main Hall"
+                    value={roomForm.name}
+                    onChange={(e) => setRoomForm((p) => ({ ...p, name: e.target.value }))}
+                    required
+                    className="input"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label">Capacity (people)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="e.g. 40"
+                      value={roomForm.capacity ?? ""}
+                      onChange={(e) => setRoomForm((p) => ({ ...p, capacity: e.target.value === "" ? undefined : Number(e.target.value) }))}
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label">Rate (UGX/hr)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={roomForm.hourlyRate ?? ""}
+                      onChange={(e) => setRoomForm((p) => ({ ...p, hourlyRate: e.target.value === "" ? undefined : Number(e.target.value) }))}
+                      className="input"
+                    />
+                  </div>
+                </div>
 
-                  <button
-                    type="submit"
-                    className="w-full bg-blue-600 py-3 rounded-xl text-white font-semibold hover:bg-blue-700 transition"
-                  >
-                    Save Booking
-                  </button>
-                </form>
-              </motion.div>
+                {roomError && <p className="text-sm text-rose-600">{roomError}</p>}
+
+                <div className="flex justify-end gap-3 pt-1">
+                  <button type="button" className="btn btn-secondary" onClick={() => setRoomModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Add Room</button>
+                </div>
+              </form>
             </motion.div>
-          )}
-        </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* SEARCH & FILTER */}
-        <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl text-blue-900 shadow-lg border border-blue-400 mb-8">
-          <h3 className="text-lg font-semibold text-blue-900 mb-6">Search & Filter Bookings</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <input
-              type="text"
-              placeholder="Search organizer or room..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-            />
-            <select
-              value={filterRoom}
-              onChange={(e) => setFilterRoom(e.target.value)}
-              className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
+      {/* MODAL */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setOpen(false)}
+          >
+            <motion.div
+              className="modal-panel max-w-2xl"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="New conference booking"
             >
-              <option value="All">All Rooms</option>
-              {rooms.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <input
-              type="number"
-              placeholder="Min Price"
-              value={filterMinPrice}
-              onChange={(e) => setFilterMinPrice(e.target.value === "" ? "" : Number(e.target.value))}
-              className="p-3 border-2 border-blue-500 text-blue-900 bg-blue-50 rounded-lg"
-            />
-            <input
-              type="number"
-              placeholder="Max Price"
-              value={filterMaxPrice}
-              onChange={(e) => setFilterMaxPrice(e.target.value === "" ? "" : Number(e.target.value))}
-              className="p-3 border-2 border-blue-500 bg-blue-50 rounded-lg"
-            />
-          </div>
-          <p className="mt-4 text-sm text-blue-900">
-            Showing <strong>{filteredBookings.length}</strong> of <strong>{bookings.length}</strong> bookings
-          </p>
+              <div className="modal-header">
+                <h2 className="modal-title">New Conference Booking</h2>
+                <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form className="p-6 space-y-5" onSubmit={handleSubmit}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label">Organizer name<span className="req">*</span></label>
+                    <input type="text" name="organizerName" placeholder="Organizer name" value={formData.organizerName} onChange={handleChange} required className="input" />
+                  </div>
+                  <div>
+                    <label className="field-label">Email</label>
+                    <input type="email" name="email" placeholder="Optional" value={formData.email} onChange={handleChange} className="input" />
+                  </div>
+                  <div>
+                    <label className="field-label">Phone number</label>
+                    <input type="tel" name="phoneNumber" placeholder="+256 7xx xxx xxx" value={formData.phoneNumber} onChange={handleChange} className="input" />
+                  </div>
+                  <div>
+                    <label className="field-label">Room<span className="req">*</span></label>
+                    <select name="room" value={formData.room} onChange={handleChange} required className="select">
+                      <option value="" disabled>Select room</option>
+                      {rooms.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">Duration (hrs)<span className="req">*</span></label>
+                    <input type="number" name="durationHours" placeholder="e.g. 3" value={formData.durationHours} onChange={handleChange} className="input" />
+                  </div>
+                  <div>
+                    <label className="field-label">Price (UGX)</label>
+                    <input type="number" name="price" placeholder="0" value={formData.price} onChange={handleChange} className="input" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="field-label">Notes</label>
+                  <textarea name="notes" placeholder="Additional details" value={formData.notes} onChange={handleChange} className="textarea" />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-1">
+                  <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Save Booking</button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ROOM INVENTORY */}
+      <div className="card card-pad">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="section-title">Conference Rooms</h2>
+          {!roomList.length && (
+            <span className="text-sm muted">
+              No rooms registered yet — using default room names until you add your own.
+            </span>
+          )}
         </div>
+        {roomList.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+            {roomList.map((r) => (
+              <div key={r.id} className="border border-slate-200 rounded-xl p-3 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-800">{r.name}</span>
+                  <Briefcase size={15} className="text-slate-400" />
+                </div>
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                  <Users size={12} />
+                  {r.capacity ? `${r.capacity} people` : "Capacity not set"}
+                  {r.hourlyRate ? ` · ${Number(r.hourlyRate).toLocaleString()} UGX/hr` : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        {/* TABLE */}
-        <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl shadow-lg border border-blue-400">
-          <h2 className="text-xl font-semibold mb-6 text-blue-900">Recent Bookings</h2>
-          <div className="overflow-hidden border border-blue-300 rounded-xl">
-            <table className="w-full text-left">
-              <thead className="bg-blue-100 text-blue-900">
-                <tr>
-                  <th className="px-4 py-3 border-b">Organizer</th>
-                  <th className="px-4 py-3 border-b">Phone</th>
-                  <th className="px-4 py-3 border-b">Room</th>
-                  <th className="px-4 py-3 border-b">Time</th>
-                  <th className="px-4 py-3 border-b">Duration</th>
-                  <th className="px-4 py-3 border-b">Price</th>
-                  <th className="px-4 py-3 border-b text-center">Receipt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBookings.length ? filteredBookings.map((b, i) => (
-                  <tr key={b.id} className={`border-b hover:bg-blue-50 ${i % 2 === 0 ? "bg-white" : "bg-blue-50/50"}`}>
-                    <td className="px-4 py-3 text-blue-900">{b.organizerName}</td>
-                    <td className="px-4 py-3 text-blue-900">
-                      {b.phoneNumber || "-"}
-                    </td>
+      {/* SEARCH & FILTER */}
+      <div className="filter-bar">
+        <h3 className="section-title mb-3">Search &amp; filter</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+          <div className="search-wrap">
+            <Search size={16} />
+            <input type="text" aria-label="Search bookings" placeholder="Search organizer or room…" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
+          </div>
+          <select value={filterRoom} onChange={(e) => setFilterRoom(e.target.value)} className="select" aria-label="Room">
+            <option value="All">All rooms</option>
+            {rooms.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <input type="number" placeholder="Min price" value={filterMinPrice} onChange={(e) => setFilterMinPrice(e.target.value === "" ? "" : Number(e.target.value))} className="input" aria-label="Minimum price" />
+          <input type="number" placeholder="Max price" value={filterMaxPrice} onChange={(e) => setFilterMaxPrice(e.target.value === "" ? "" : Number(e.target.value))} className="input" aria-label="Maximum price" />
+        </div>
+        <p className="mt-3 text-sm muted">
+          Showing <strong className="text-slate-700">{filteredBookings.length}</strong> of <strong className="text-slate-700">{bookings.length}</strong> bookings
+        </p>
+      </div>
 
-                    <td className="px-4 py-3 text-blue-900">{b.room}</td>
-                    <td className="px-4 py-3 text-blue-900">{new Date(b.startTime).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-blue-900">{b.durationHours} hr(s)</td>
-                    <td className="px-4 py-3 text-blue-900">{Number(b.price).toLocaleString()} UGX</td>
-                    <td className="px-4 py-3 text-blue-900 text-center">
-                      <button
-                        onClick={() => printBooking(b)}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
-                      >
-                        Print
+      {/* TABLE */}
+      <div className="card card-pad">
+        <h2 className="section-title mb-4">Recent Bookings</h2>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Organizer</th>
+                <th>Phone</th>
+                <th>Room</th>
+                <th>Time</th>
+                <th>Duration</th>
+                <th>Price</th>
+                <th className="text-center">Receipt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={j}><div className="skeleton" style={{ height: 14, width: 80 }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : filteredBookings.length ? (
+                filteredBookings.map((b) => (
+                  <tr key={b.id}>
+                    <td className="font-medium text-slate-800">{b.organizerName}</td>
+                    <td className="text-slate-500">{b.phoneNumber || "-"}</td>
+                    <td><span className="badge badge-info badge-plain">{b.room}</span></td>
+                    <td className="text-slate-500 whitespace-nowrap">{new Date(b.startTime).toLocaleString()}</td>
+                    <td>{b.durationHours} hr(s)</td>
+                    <td className="font-medium">{Number(b.price).toLocaleString()} UGX</td>
+                    <td className="text-center">
+                      <button onClick={() => printBooking(b)} className="btn btn-secondary btn-sm">
+                        <Printer size={15} /> Print
                       </button>
                     </td>
                   </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={6} className="text-center py-8">No bookings match your filters.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="empty-state">
+                      <div className="empty-icon"><Briefcase size={24} /></div>
+                      <p className="empty-title">No bookings found</p>
+                      <p className="empty-desc">
+                        {bookings.length ? "No bookings match your current filters." : "Book your first conference room and it will appear here."}
+                      </p>
+                      {!bookings.length && (
+                        <button className="btn btn-primary btn-sm mt-2" onClick={() => setOpen(true)}>
+                          <Plus size={15} /> New Booking
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-
       </div>
     </div>
   );
