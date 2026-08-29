@@ -1,243 +1,108 @@
 rules_version = '2';
-
-// Multi-tenant role model (stored on users/{uid}):
-//   role: "super_admin" — platform operator. hotelId is always null.
-//     Creates hotels and hotel_admin accounts. No access to any hotel's
-//     operational data (rooms, bookings, restaurant, etc.) by design —
-//     keeps blast radius small if the account is ever compromised.
-//   role: "hotel_admin" — full control of exactly one hotel (hotelId set).
-//     Creates staff accounts for that hotel, manages all its operational
-//     data, reads its audit log.
-//   role: "staff"       — day-to-day operations within one hotel.
-//   role: "pending"      — legacy/unused; no data access. Public self-signup
-//     has been removed, so nothing produces this role going forward.
-//
-// users/{uid} stays a top-level collection (not hotel-scoped) so role and
-// hotelId can be resolved from a bare uid alone — see src/lib/hotelScope.ts
-// for the client-side rationale.
-//
-// Everything hotel-specific lives under hotels/{hotelId}/{collection}/{docId}.
-// That {hotelId} path segment is the tenant boundary: a client cannot read
-// or write another hotel's documents without addressing them by that
-// hotel's id, and every rule below checks the caller's own hotelId matches.
-//
-// Deploy with: firebase deploy --only firestore:rules
-
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'pending'); }
+    function hotel() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('hotelId', null); }
+    function superAdmin() { return signedIn() && role() == 'super_admin'; }
+    function hotelAdmin(hotelId) { return signedIn() && role() == 'hotel_admin' && hotel() == hotelId; }
+    function hotelStaff(hotelId) { return signedIn() && role() in ['hotel_admin', 'staff'] && hotel() == hotelId; }
+    function own() { return request.resource.data.get('userId', null) == request.auth.uid; }
+    function fieldsOk() { return request.resource.data.size() <= 50; }
+    function roomStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Available','Occupied','Cleaning','Maintenance','Out of Service']; }
+    function bookingStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Confirmed','Checked In','Checked Out','Cancelled','No Show']; }
+    function orderStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Open','Served','Paid','Cancelled']; }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    // Role / hotelId of the requesting user. Only ever called from behind
-    // an isSignedIn() check (via && short-circuit) so the get() below is
-    // never evaluated for anonymous requests.
-    function myRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid))
-        .data.get('role', 'pending');
-    }
-
-    function myHotelId() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid))
-        .data.get('hotelId', null);
-    }
-
-    function isSuperAdmin() {
-      return isSignedIn() && myRole() == 'super_admin';
-    }
-
-    function isHotelAdminOf(hotelId) {
-      return isSignedIn() && myRole() == 'hotel_admin' && myHotelId() == hotelId;
-    }
-
-    // hotel_admin or staff, scoped to one hotel.
-    function isStaffOf(hotelId) {
-      return isSignedIn() && myRole() in ['hotel_admin', 'staff'] && myHotelId() == hotelId;
-    }
-
-    // ---------- Lightweight write validation ----------
-    // Not full schema enforcement (the app is still actively evolving
-    // field shapes) — just enough to close the two cheapest abuse paths:
-    // impersonating another user's actions, and unbounded payloads.
-
-    // A new doc's `userId` must be the caller's own uid. Only checked on
-    // create: on update, request.resource.data.userId reflects the
-    // ORIGINAL author (most updates only patch a `status` field), and
-    // staff legitimately update records they didn't create (e.g. a
-    // different shift checking a guest out).
-    function ownedByCaller() {
-      return request.resource.data.get('userId', null) == request.auth.uid;
-    }
-
-    // Field-count cap: cheap guard against a compromised/buggy client
-    // stuffing arbitrary extra data into a document.
-    function withinFieldLimit() {
-      return request.resource.data.size() <= 40;
-    }
-
-    // Room status must match one of the values the UI actually offers
-    // (see ROOM_STATUSES in src/lib/collections.ts). Only checked when
-    // the field is present so partial updates that don't touch it pass.
-    function validRoomStatus() {
-      return !('status' in request.resource.data) ||
-        request.resource.data.status in
-          ['Available', 'Occupied', 'Cleaning', 'Maintenance', 'Out of Service'];
-    }
-
-    // Booking status must match BOOKING_STATUSES in src/lib/collections.ts.
-    function validBookingStatus() {
-      return !('status' in request.resource.data) ||
-        request.resource.data.status in
-          ['Confirmed', 'Checked In', 'Checked Out', 'Cancelled', 'No Show'];
-    }
-
-    // Restaurant order status must match OrderStatus in src/Restaurant.tsx.
-    function validOrderStatus() {
-      return !('status' in request.resource.data) ||
-        request.resource.data.status in ['Open', 'Served', 'Paid', 'Cancelled'];
-    }
-
-    // ---------- Users (top-level; see note above) ----------
     match /users/{userId} {
-      // Self, super_admin, or the hotel_admin of whatever hotel this user
-      // belongs to may read the profile.
-      allow read: if isSignedIn() && (
-        request.auth.uid == userId ||
-        isSuperAdmin() ||
-        (myRole() == 'hotel_admin' && resource.data.get('hotelId', null) == myHotelId())
-      );
-
-      // No public self-signup: every account is admin-initiated.
-      //  - super_admin may create a hotel_admin (must reference a real
-      //    hotel) or another super_admin (hotelId null).
-      //  - hotel_admin may create a staff account, only for their own
-      //    hotel.
-      allow create: if isSignedIn() && (
-        (
-          isSuperAdmin() &&
-          (
-            (request.resource.data.role == 'hotel_admin' &&
-             request.resource.data.hotelId is string &&
-             exists(/databases/$(database)/documents/hotels/$(request.resource.data.hotelId))) ||
-            (request.resource.data.role == 'super_admin' &&
-             request.resource.data.hotelId == null)
-          )
-        ) ||
-        (
-          myRole() == 'hotel_admin' &&
-          request.resource.data.role == 'staff' &&
-          request.resource.data.hotelId == myHotelId()
-        )
-      );
-
-      // Role and hotelId are immutable except by an authorized admin:
-      //  - super_admin may change anything.
-      //  - a user may update their own profile fields, but never their
-      //    own role or hotelId (no self-escalation, no self-reassignment).
-      //  - a hotel_admin may update a staff member's profile within their
-      //    own hotel, but cannot change that person's role or hotelId
-      //    (i.e. cannot promote staff to hotel_admin or move them to
-      //    another hotel — those are platform-level operations).
-      allow update: if isSignedIn() && (
-        isSuperAdmin() ||
-        (
-          request.auth.uid == userId &&
-          request.resource.data.role == resource.data.role &&
-          request.resource.data.hotelId == resource.data.hotelId
-        ) ||
-        (
-          myRole() == 'hotel_admin' &&
-          resource.data.role == 'staff' &&
-          resource.data.hotelId == myHotelId() &&
-          request.resource.data.role == 'staff' &&
-          request.resource.data.hotelId == myHotelId()
-        )
-      );
-
-      // super_admin may remove any account; a hotel_admin may remove
-      // staff accounts within their own hotel only.
-      allow delete: if isSuperAdmin() || (
-        myRole() == 'hotel_admin' &&
-        resource.data.role == 'staff' &&
-        resource.data.hotelId == myHotelId()
-      );
+      allow read: if signedIn() && (request.auth.uid == userId || superAdmin() || (role() == 'hotel_admin' && resource.data.get('hotelId', null) == hotel()));
+      allow create: if signedIn() && ((superAdmin() && ((request.resource.data.role == 'hotel_admin' && request.resource.data.hotelId is string && exists(/databases/$(database)/documents/hotels/$(request.resource.data.hotelId))) || (request.resource.data.role == 'super_admin' && request.resource.data.hotelId == null))) || (role() == 'hotel_admin' && request.resource.data.role == 'staff' && request.resource.data.hotelId == hotel()));
+      allow update: if signedIn() && (superAdmin() || (request.auth.uid == userId && request.resource.data.role == resource.data.role && request.resource.data.hotelId == resource.data.hotelId) || (role() == 'hotel_admin' && resource.data.role == 'staff' && resource.data.hotelId == hotel() && request.resource.data.role == 'staff' && request.resource.data.hotelId == hotel()));
+      allow delete: if superAdmin() || (role() == 'hotel_admin' && resource.data.role == 'staff' && resource.data.hotelId == hotel());
     }
 
-    // ---------- Hotels (top-level registry) ----------
     match /hotels/{hotelId} {
-      // super_admin sees every hotel; a hotel's own admin/staff can read
-      // their hotel's doc (e.g. to show subscription status in-app).
-      allow read: if isSignedIn() && (isSuperAdmin() || myHotelId() == hotelId);
-
-      // Only the platform operator creates tenants or edits subscription
-      // status. No hard delete in this pass — deactivate via subscription
-      // status instead, so historical data is never silently orphaned.
-      allow create, update: if isSuperAdmin();
+      allow read: if signedIn() && (superAdmin() || hotel() == hotelId);
+      allow create, update: if superAdmin();
       allow delete: if false;
 
-      // ---------- Hotel-scoped operational data ----------
-      // Note: "accomodation" spelling matches existing documents.
-      // hotel_admin/staff of THIS hotel may read/write; only hotel_admin
-      // may delete. super_admin has no access here by design (platform
-      // operator manages tenants, not day-to-day hotel operations).
       match /rooms/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validRoomStatus();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validRoomStatus();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && roomStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && roomStatusOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
       match /accomodation/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validBookingStatus();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validBookingStatus();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && bookingStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && bookingStatusOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
+      match /reservations/{docId} {
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && bookingStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && bookingStatusOk();
+        allow delete: if hotelAdmin(hotelId);
+      }
+      match /folioItems/{docId} {
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
+      }
+      match /payments/{docId} {
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
+      }
+      match /housekeepingTasks/{docId} {
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
+      }
+      match /maintenanceRequests/{docId} {
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
+      }
+      match /nightAudits/{docId} {
+        allow read: if hotelAdmin(hotelId);
+        allow create: if hotelAdmin(hotelId) && own() && fieldsOk();
+        allow update: if false;
+        allow delete: if false;
+      }
       match /restaurant/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validOrderStatus();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validOrderStatus();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && orderStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && orderStatusOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
       match /conferenceRooms/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
-      // Conference room inventory (the physical spaces; bookings live in
-      // "conferenceRooms" above for legacy reasons).
       match /conferenceSpaces/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
       match /expenses/{docId} {
-        allow read: if isStaffOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
-        allow update: if isStaffOf(hotelId) && withinFieldLimit();
-        allow delete: if isHotelAdminOf(hotelId);
+        allow read: if hotelStaff(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow delete: if hotelAdmin(hotelId);
       }
-
-      // ---------- Audit log ----------
-      // Append-only: staff may write entries about their own actions;
-      // only this hotel's admin may read; nothing is ever edited/deleted.
       match /auditLog/{docId} {
-        allow read: if isHotelAdminOf(hotelId);
-        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
+        allow read: if hotelAdmin(hotelId);
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
         allow update, delete: if false;
       }
     }
-
-    // Everything else is denied by default.
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }
