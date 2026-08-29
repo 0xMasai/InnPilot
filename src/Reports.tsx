@@ -31,7 +31,6 @@ import {
   eventDate,
   expenseDate,
   bookingStatusOf,
-  isRevenueBooking,
   isRevenueOrder,
   toDateSafe,
   type DatePreset,
