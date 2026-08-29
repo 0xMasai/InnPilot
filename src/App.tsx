@@ -13,6 +13,7 @@ import UsersDashboard from "./Users";
 import AuditLogDashboard from "./AuditLog";
 import RoomBoard from "./pages/pms/RoomBoard";
 import FrontDesk from "./pages/pms/FrontDesk";
+import Reservations from "./pages/pms/Reservations";
 import AdminBookingRecords from "./pages/admin/Accommodation";
 import AdminOrderRecords from "./pages/admin/Restaurant";
 import AdminEventRecords from "./pages/admin/Conference";
@@ -35,6 +36,7 @@ function App() {
     <Route path="/dashboard" element={<ProtectedRoute allow={["hotel_admin", "staff"]}><DashboardShell /></ProtectedRoute>}>
       <Route index element={<OverviewDashboard />} />
       <Route path="front-desk" element={<FrontDesk />} />
+      <Route path="reservations" element={<Reservations />} />
       <Route path="room-board" element={<RoomBoard />} />
       <Route path="accommodation" element={<AccommodationDashboard />} />
       <Route path="guests" element={<GuestsDashboard />} />
