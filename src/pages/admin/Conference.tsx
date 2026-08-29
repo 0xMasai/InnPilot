@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from "react";
 import {
-  collection,
   onSnapshot,
   // deleteDoc,
-  doc,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth } from "../../../firebase";
+import { auth } from "../../../firebase";
+import { hotelCollection, hotelDoc } from "../../lib/hotelScope";
+import { useAuth } from "../../auth/AuthProvider";
 
 
 import "flatpickr/dist/flatpickr.min.css";
@@ -32,6 +32,7 @@ interface Booking {
 }
 
 export default function AdminConferenceRoomDashboard() {
+  const { hotelId } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<Booking[]>([]);
 
@@ -44,9 +45,9 @@ export default function AdminConferenceRoomDashboard() {
 
   // Fetch bookings
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser || !hotelId) return;
 
-    const ref = collection(db, "conferenceRooms");
+    const ref = hotelCollection(hotelId, "conferenceRooms");
 
     const unsub = onSnapshot(ref, (snapshot) => {
       const data = snapshot.docs.map((d) => {
@@ -71,7 +72,7 @@ export default function AdminConferenceRoomDashboard() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   // Apply filters
   useEffect(() => {
@@ -144,10 +145,10 @@ export default function AdminConferenceRoomDashboard() {
   };
 
   const saveEditChanges = async () => {
-    if (!editData || !editData.id) return;
+    if (!editData || !editData.id || !hotelId) return;
 
     const { id, ...data } = editData;
-    await updateDoc(doc(db, "conferenceRooms", id), data);
+    await updateDoc(hotelDoc(hotelId, "conferenceRooms", id), data);
 
     alert("Booking updated successfully.");
     setIsEditOpen(false);

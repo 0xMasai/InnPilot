@@ -4,8 +4,9 @@
 // bookings (by phone number, falling back to name), so this page needs no
 // data migration and can never drift out of sync with bookings.
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, Timestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { onSnapshot, Timestamp } from "firebase/firestore";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Users, BedDouble, Phone } from "lucide-react";
 import { COLLECTIONS, type BookingStatus } from "./lib/collections";
@@ -47,18 +48,20 @@ const statusBadge: Record<BookingStatus, string> = {
 };
 
 export default function GuestsDashboard() {
+  const { hotelId } = useAuth();
   const [bookings, setBookings] = useState<BookingDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<GuestProfile | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, COLLECTIONS.BOOKINGS), (snap) => {
+    if (!hotelId) return;
+    const unsub = onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (snap) => {
       setBookings(snap.docs.map((d) => ({ id: d.id, ...(d.data() as BookingDoc) })));
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   const guests = useMemo(() => {
     const map = new Map<string, GuestProfile>();

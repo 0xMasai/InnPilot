@@ -1,14 +1,19 @@
 "use client";
-// Admin-only user management: approve pending accounts and assign roles.
-// Role enforcement happens in Firestore security rules; this page is the UI.
+// Hotel Admin only: view staff for this hotel and create new staff
+// accounts directly. Public self-signup has been removed — accounts are
+// always admin-initiated (see src/lib/accountCreation.ts for why that's
+// safe without a backend). Role enforcement happens in Firestore
+// security rules; this page is the UI on top of that.
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import type { FormEvent } from "react";
+import { deleteDoc, doc, onSnapshot, query, collection, where } from "firebase/firestore";
 import { db } from "../firebase";
-import { Search, Users as UsersIcon, ShieldCheck, Clock, CheckCircle2 } from "lucide-react";
-import { COLLECTIONS } from "./lib/collections";
+import { Search, Users as UsersIcon, ShieldCheck, UserPlus, Trash2, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toDateSafe } from "./lib/metrics";
 import { logAction } from "./lib/audit";
 import { useAuth, type Role } from "./auth/AuthProvider";
+import { createManagedAccount } from "./lib/accountCreation";
 
 interface UserRow {
   id: string;
@@ -19,25 +24,35 @@ interface UserRow {
 }
 
 const roleBadge: Record<Role, string> = {
-  admin: "badge-info",
+  super_admin: "badge-info",
+  hotel_admin: "badge-info",
   staff: "badge-success",
   pending: "badge-warning",
 };
 
 export default function UsersDashboard() {
-  const { user: me } = useAuth();
+  const { user: me, hotelId } = useAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addError, setAddError] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, COLLECTIONS.USERS), (snap) => {
+    if (!hotelId) return;
+    const q = query(collection(db, "users"), where("hotelId", "==", hotelId));
+    const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UserRow, "id">) }));
-      // Pending first, then admins, then staff; newest first within groups.
-      const rank: Record<string, number> = { pending: 0, admin: 1, staff: 2 };
+      // Hotel admin(s) first, then staff; newest first within groups.
+      const rank: Record<string, number> = { hotel_admin: 0, staff: 1, pending: 2 };
       data.sort((a, b) => {
-        const r = (rank[a.role ?? "pending"] ?? 3) - (rank[b.role ?? "pending"] ?? 3);
+        const r = (rank[a.role ?? "staff"] ?? 3) - (rank[b.role ?? "staff"] ?? 3);
         if (r !== 0) return r;
         return (toDateSafe(b.createdAt)?.getTime() ?? 0) - (toDateSafe(a.createdAt)?.getTime() ?? 0);
       });
@@ -45,18 +60,57 @@ export default function UsersDashboard() {
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
-  const setRole = async (u: UserRow, role: Role) => {
-    const current = u.role ?? "pending";
-    if (current === role || busy) return;
+  const handleAddStaff = async (e: FormEvent) => {
+    e.preventDefault();
+    setAddError("");
+    if (!me || !hotelId) return setAddError("No hotel context — please sign in again.");
+    if (!addName.trim() || !addEmail.trim() || addPassword.length < 6) {
+      return setAddError("Name, email, and a password of at least 6 characters are required.");
+    }
+    setAddBusy(true);
+    try {
+      const { uid } = await createManagedAccount({
+        name: addName.trim(),
+        email: addEmail.trim(),
+        password: addPassword,
+        role: "staff",
+        hotelId,
+        createdBy: me.uid,
+      });
+      logAction(hotelId, "Staff account created", "user", uid, `${addEmail.trim()}`);
+      setAddOpen(false);
+      setAddName("");
+      setAddEmail("");
+      setAddPassword("");
+    } catch (err: unknown) {
+      console.error("Failed to create staff account:", err);
+      const code = typeof err === "object" && err && "code" in err ? (err as { code?: string }).code : undefined;
+      setAddError(
+        code === "auth/email-already-in-use"
+          ? "That email is already registered."
+          : "Failed to create account. Please try again."
+      );
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const removeStaff = async (u: UserRow) => {
+    if (busy || u.id === me?.uid) return;
+    if (!confirm(`Remove ${u.email ?? u.name ?? "this account"}? They will immediately lose access.`)) return;
     setBusy(u.id);
     try {
-      await updateDoc(doc(db, COLLECTIONS.USERS, u.id), { role });
-      logAction("Role changed", "user", u.id, `${u.email ?? u.id}: ${current} → ${role}`);
+      // Removes the profile doc, which revokes app access (AuthProvider
+      // treats a missing profile as no access). The underlying Firebase
+      // Auth account isn't deleted — that requires the Admin SDK, which
+      // this project doesn't run; flagged as a follow-up.
+      await deleteDoc(doc(db, "users", u.id));
+      logAction(hotelId, "Staff account removed", "user", u.id, `${u.email ?? u.id}`);
     } catch (err) {
-      console.error("Failed to change role:", err);
-      alert("Failed to change role. Check your permissions and try again.");
+      console.error("Failed to remove account:", err);
+      alert("Failed to remove account. Check your permissions and try again.");
     } finally {
       setBusy(null);
     }
@@ -75,8 +129,8 @@ export default function UsersDashboard() {
   const counts = useMemo(
     () => ({
       total: users.length,
-      pending: users.filter((u) => (u.role ?? "pending") === "pending").length,
-      admins: users.filter((u) => u.role === "admin").length,
+      staff: users.filter((u) => u.role === "staff").length,
+      admins: users.filter((u) => u.role === "hotel_admin").length,
     }),
     [users]
   );
@@ -86,8 +140,11 @@ export default function UsersDashboard() {
       <div className="page-header">
         <div>
           <h2 className="page-title">Staff &amp; Users</h2>
-          <p className="page-subtitle">Approve new accounts and manage roles.</p>
+          <p className="page-subtitle">Manage accounts for your hotel.</p>
         </div>
+        <button onClick={() => setAddOpen(true)} className="btn btn-primary btn-sm">
+          <UserPlus size={15} /> Add Staff
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -100,14 +157,14 @@ export default function UsersDashboard() {
         </div>
         <div className="stat-card">
           <div className="stat-top">
-            <span className="stat-label">Awaiting Approval</span>
-            <span className="stat-icon is-warning"><Clock size={19} /></span>
+            <span className="stat-label">Staff</span>
+            <span className="stat-icon is-success"><UsersIcon size={19} /></span>
           </div>
-          <div className="stat-value">{counts.pending}</div>
+          <div className="stat-value">{counts.staff}</div>
         </div>
         <div className="stat-card">
           <div className="stat-top">
-            <span className="stat-label">Administrators</span>
+            <span className="stat-label">Hotel Admins</span>
             <span className="stat-icon is-success"><ShieldCheck size={19} /></span>
           </div>
           <div className="stat-value">{counts.admins}</div>
@@ -151,7 +208,7 @@ export default function UsersDashboard() {
                 ))
               ) : filtered.length ? (
                 filtered.map((u) => {
-                  const role: Role = u.role ?? "pending";
+                  const role: Role = u.role ?? "staff";
                   const isSelf = u.id === me?.uid;
                   const joined = toDateSafe(u.createdAt);
                   return (
@@ -169,31 +226,17 @@ export default function UsersDashboard() {
                       </td>
                       <td>
                         <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                          {role === "pending" && (
+                          {/* Only staff accounts can be removed here — hotel
+                              admins are managed at the platform level. */}
+                          {!isSelf && role === "staff" && (
                             <button
-                              onClick={() => setRole(u, "staff")}
+                              onClick={() => removeStaff(u)}
                               disabled={busy === u.id}
-                              className="btn btn-success btn-sm"
-                              title="Approve as staff"
+                              className="btn btn-danger btn-sm"
+                              title="Remove staff account"
                             >
-                              <CheckCircle2 size={14} /> Approve
+                              <Trash2 size={14} /> Remove
                             </button>
-                          )}
-                          {/* Admins cannot change their own role — prevents
-                              accidentally locking yourself out. */}
-                          {!isSelf && (
-                            <select
-                              value={role}
-                              onChange={(e) => setRole(u, e.target.value as Role)}
-                              disabled={busy === u.id}
-                              className="select"
-                              style={{ height: 32, fontSize: 12, width: 110 }}
-                              aria-label={`Role for ${u.email ?? u.id}`}
-                            >
-                              <option value="pending">pending</option>
-                              <option value="staff">staff</option>
-                              <option value="admin">admin</option>
-                            </select>
                           )}
                         </div>
                       </td>
@@ -207,7 +250,7 @@ export default function UsersDashboard() {
                       <div className="empty-icon"><UsersIcon size={24} /></div>
                       <p className="empty-title">No users found</p>
                       <p className="empty-desc">
-                        {users.length ? "No users match your search." : "Accounts appear here after signup."}
+                        {users.length ? "No users match your search." : "Add your first staff account to get started."}
                       </p>
                     </div>
                   </td>
@@ -217,6 +260,92 @@ export default function UsersDashboard() {
           </table>
         </div>
       </div>
+
+      <AnimatePresence>
+        {addOpen && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !addBusy && setAddOpen(false)}
+          >
+            <motion.div
+              className="modal-panel max-w-md"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Add staff"
+            >
+              <div className="modal-header">
+                <h2 className="modal-title">Add Staff Account</h2>
+                <button className="icon-btn" onClick={() => !addBusy && setAddOpen(false)} aria-label="Close">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form className="p-6 space-y-4" onSubmit={handleAddStaff}>
+                <div>
+                  <label className="field-label">Full name<span className="req">*</span></label>
+                  <input
+                    type="text"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    required
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Email<span className="req">*</span></label>
+                  <input
+                    type="email"
+                    value={addEmail}
+                    onChange={(e) => setAddEmail(e.target.value)}
+                    required
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Temporary password<span className="req">*</span></label>
+                  <input
+                    type="text"
+                    value={addPassword}
+                    onChange={(e) => setAddPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    required
+                    className="input"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    Share this with the staff member directly; they can change it after logging in.
+                  </p>
+                </div>
+
+                {addError && (
+                  <div
+                    className="text-sm rounded-md px-3 py-2"
+                    style={{ background: "var(--danger-soft)", color: "var(--danger-text)", border: "1px solid var(--danger-border)" }}
+                  >
+                    {addError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setAddOpen(false)} disabled={addBusy} className="btn btn-ghost btn-sm">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={addBusy} className="btn btn-primary btn-sm">
+                    {addBusy ? "Creating…" : "Create account"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

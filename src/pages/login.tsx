@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../firebase";
@@ -34,6 +34,7 @@ const LoginPage = () => {
           uid: user.uid,
           email: user.email,
           role: "pending",
+          hotelId: null,
           createdAt: serverTimestamp(),
         });
       }
@@ -159,11 +160,8 @@ const LoginPage = () => {
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">
-            Don’t have an account?{" "}
-            <Link to="/signup" className="font-medium text-blue-600 hover:underline">Sign up</Link>
-          </p>
-          <p className="text-center text-sm text-slate-400 mt-2">
-            <Link to="/admin/login" className="hover:underline">Admin login</Link>
+            Accounts are created by your Hotel Admin or Super Admin —
+            contact them if you need access.
           </p>
         </motion.div>
       </div>

@@ -4,8 +4,9 @@
 // the dashboard — so reports can never disagree with the Overview.
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { onSnapshot } from "firebase/firestore";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import {
   FileText,
   Printer,
@@ -67,6 +68,7 @@ interface BuiltReport {
 }
 
 export default function ReportsDashboard() {
+  const { hotelId } = useAuth();
   const [data, setData] = useState<MetricsInput>({
     bookings: [],
     orders: [],
@@ -80,25 +82,26 @@ export default function ReportsDashboard() {
   const [customEnd, setCustomEnd] = useState("");
 
   useEffect(() => {
+    if (!hotelId) return;
     const subs = [
-      onSnapshot(collection(db, COLLECTIONS.BOOKINGS), (s) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (s) =>
         setData((p) => ({ ...p, bookings: s.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.RESTAURANT), (s) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), (s) =>
         setData((p) => ({ ...p, orders: s.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.CONFERENCE), (s) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.CONFERENCE), (s) =>
         setData((p) => ({ ...p, events: s.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.EXPENSES), (s) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.EXPENSES), (s) =>
         setData((p) => ({ ...p, expenses: s.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.ROOMS), (s) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.ROOMS), (s) =>
         setData((p) => ({ ...p, rooms: s.docs.map((d) => d.data()) }))
       ),
     ];
     return () => subs.forEach((u) => u());
-  }, []);
+  }, [hotelId]);
 
   const range: DateRange = useMemo(() => {
     if (preset === "custom" && customStart && customEnd) {

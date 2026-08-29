@@ -1,8 +1,10 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { collection, addDoc, onSnapshot, doc, updateDoc } from "firebase/firestore";
-import { db, auth } from "../firebase";
+import { addDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { auth } from "../firebase";
+import { hotelCollection, hotelDoc } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import {
   Plus,
   X,
@@ -56,6 +58,7 @@ const statusBadge: Record<OrderStatus, string> = {
 const orderStatusOf = (o: Order): OrderStatus => o.status ?? "Paid";
 
 export default function RestaurantDashboard() {
+  const { hotelId } = useAuth();
   const [open, setOpen] = useState(false);
 
   const initialFormData: Order = {
@@ -81,7 +84,8 @@ export default function RestaurantDashboard() {
   // Fetch orders — shared operational data: every staff member sees all
   // orders (userId is still written on each record for accountability).
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, COLLECTIONS.RESTAURANT), (snapshot) => {
+    if (!hotelId) return;
+    const unsub = onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...(doc.data() as Order),
@@ -92,7 +96,7 @@ export default function RestaurantDashboard() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -112,14 +116,16 @@ export default function RestaurantDashboard() {
       return;
     }
 
+    if (!hotelId) return alert("No hotel context — please sign in again.");
+
     try {
-      const ref = await addDoc(collection(db, COLLECTIONS.RESTAURANT), {
+      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), {
         ...formData,
         status: "Open" as OrderStatus,
         userId: auth.currentUser?.uid ?? "",
         createdAt: new Date().toISOString(),
       });
-      logAction("Order created", "order", ref.id, `${formData.clientName} · ${formData.category} · UGX ${formData.price.toLocaleString()}`);
+      logAction(hotelId, "Order created", "order", ref.id, `${formData.clientName} · ${formData.category} · UGX ${formData.price.toLocaleString()}`);
 
       setFormData({
         ...initialFormData,
@@ -134,10 +140,10 @@ export default function RestaurantDashboard() {
   };
 
   const setStatus = async (o: Order, status: OrderStatus) => {
-    if (!o.id) return;
+    if (!o.id || !hotelId) return;
     try {
-      await updateDoc(doc(db, COLLECTIONS.RESTAURANT, o.id), { status });
-      logAction(`Order ${status.toLowerCase()}`, "order", o.id, `${o.clientName} · UGX ${o.price.toLocaleString()}`);
+      await updateDoc(hotelDoc(hotelId, COLLECTIONS.RESTAURANT, o.id), { status });
+      logAction(hotelId, `Order ${status.toLowerCase()}`, "order", o.id, `${o.clientName} · UGX ${o.price.toLocaleString()}`);
     } catch (err) {
       console.error("Failed to update order:", err);
     }

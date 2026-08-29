@@ -5,9 +5,10 @@
  * so failures are logged to the console and swallowed. Entries are
  * immutable by security rule (no update/delete for anyone).
  */
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "../../firebase";
+import { addDoc, serverTimestamp } from "firebase/firestore";
+import { auth } from "../../firebase";
 import { COLLECTIONS } from "./collections";
+import { hotelCollection } from "./hotelScope";
 
 export type AuditEntity =
   | "booking"
@@ -28,12 +29,17 @@ export interface AuditEntry {
 }
 
 export function logAction(
+  hotelId: string | null,
   action: string,
   entity: AuditEntity,
   entityId?: string | null,
   details?: string
 ): void {
-  addDoc(collection(db, COLLECTIONS.AUDIT), {
+  if (!hotelId) {
+    console.error("Audit log write skipped: no hotel context");
+    return;
+  }
+  addDoc(hotelCollection(hotelId, COLLECTIONS.AUDIT), {
     action,
     entity,
     entityId: entityId ?? null,

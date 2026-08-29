@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  collection,
   onSnapshot,
   // deleteDoc,
   doc,
@@ -8,6 +7,8 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../../../firebase";
+import { hotelCollection, hotelDoc } from "../../lib/hotelScope";
+import { useAuth } from "../../auth/AuthProvider";
 // import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/flatpickr.min.css";
 import Tippy from "@tippyjs/react";
@@ -26,6 +27,7 @@ interface Expense {
 }
 
 export default function AdminExpensesDashboard() {
+  const { hotelId } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -39,7 +41,8 @@ export default function AdminExpensesDashboard() {
 
   // Fetch expenses and map user names
  useEffect(() => {
-  const q = collection(db, "expenses");
+  if (!hotelId) return;
+  const q = hotelCollection(hotelId, "expenses");
 
   const unsub = onSnapshot(q, async (snapshot) => {
     const data: Expense[] = await Promise.all(
@@ -88,7 +91,7 @@ export default function AdminExpensesDashboard() {
   });
 
   return () => unsub();
-}, []);
+}, [hotelId]);
 
 
 
@@ -146,10 +149,10 @@ export default function AdminExpensesDashboard() {
 
   // Save edit changes
   const saveEditChanges = async () => {
-    if (!editData) return;
+    if (!editData || !hotelId) return;
     const { id, ...dataToUpdate } = editData;
     try {
-      await updateDoc(doc(db, "expenses", id), dataToUpdate);
+      await updateDoc(hotelDoc(hotelId, "expenses", id), dataToUpdate);
       setIsEditOpen(false);
       alert("Expense updated successfully.");
     } catch (err) {

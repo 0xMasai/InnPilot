@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import {
-  collection,
   getDocs,
   query,
   orderBy,
   limit,
   startAfter,
   QueryDocumentSnapshot,
-  doc,
   // deleteDoc,
   updateDoc,
 } from "firebase/firestore";
 import type { DocumentData } from "firebase/firestore/lite";
-import { db, auth } from "../../../firebase";
+import { auth } from "../../../firebase";
+import { hotelCollection, hotelDoc } from "../../lib/hotelScope";
+import { useAuth } from "../../auth/AuthProvider";
 import { onAuthStateChanged } from "firebase/auth";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
@@ -34,6 +34,7 @@ interface AccommodationRecord {
 const PAGE_SIZE = 10;
 
 export default function AdminAccommodationDashboard() {
+  const { hotelId } = useAuth();
   const [records, setRecords] = useState<AccommodationRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<AccommodationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,10 +66,10 @@ export default function AdminAccommodationDashboard() {
   };
 
   const saveEditChanges = async () => {
-    if (!editData) return;
+    if (!editData || !hotelId) return;
 
     try {
-      const ref = doc(db, "accomodation", editData.id);
+      const ref = hotelDoc(hotelId, "accomodation", editData.id);
 
       await updateDoc(ref, {
         guestName: editData.guestName,
@@ -197,8 +198,9 @@ export default function AdminAccommodationDashboard() {
     try {
       const user = auth.currentUser;
       if (!user) throw new Error("User not authenticated.");
+      if (!hotelId) throw new Error("No hotel context — please sign in again.");
 
-      const q = query(collection(db, "accomodation"), orderBy("checkIn"), limit(PAGE_SIZE));
+      const q = query(hotelCollection(hotelId, "accomodation"), orderBy("checkIn"), limit(PAGE_SIZE));
       const snapshot = await getDocs(q);
 
       const data: AccommodationRecord[] = snapshot.docs.map((docSnap) => {
@@ -230,13 +232,13 @@ export default function AdminAccommodationDashboard() {
 
   // Load more
   const loadMore = async () => {
-    if (!lastDoc) return;
+    if (!lastDoc || !hotelId) return;
 
     setLoadingMore(true);
 
     try {
       const q = query(
-        collection(db, "accomodation"),
+        hotelCollection(hotelId, "accomodation"),
         orderBy("checkIn"),
         startAfter(lastDoc),
         limit(PAGE_SIZE)
@@ -293,15 +295,18 @@ export default function AdminAccommodationDashboard() {
   // Auth check
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) fetchRecords();
-      else {
+      if (user && hotelId) fetchRecords();
+      else if (user && !hotelId) {
+        // signed in but hotel context hasn't resolved yet — wait for it
+        setLoading(true);
+      } else {
         setError("You must be logged in to view this data.");
         setLoading(false);
       }
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   return (
     <div className="space-y-6">

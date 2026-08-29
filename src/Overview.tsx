@@ -24,9 +24,10 @@ import {
   Bar,
   Legend,
 } from "recharts";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { onSnapshot } from "firebase/firestore";
 import { COLLECTIONS } from "./lib/collections";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import {
   computeMetrics,
   dailySeries,
@@ -46,6 +47,7 @@ const PRESETS: { key: DatePreset; label: string }[] = [
 const ugx = (n: number) => `UGX ${n.toLocaleString()}`;
 
 export default function OverviewDashboard() {
+  const { hotelId } = useAuth();
   const [data, setData] = useState<MetricsInput>({
     bookings: [],
     orders: [],
@@ -57,25 +59,26 @@ export default function OverviewDashboard() {
 
   // Shared operational data: the overview aggregates the whole hotel.
   useEffect(() => {
+    if (!hotelId) return;
     const subs = [
-      onSnapshot(collection(db, COLLECTIONS.BOOKINGS), (snap) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (snap) =>
         setData((p) => ({ ...p, bookings: snap.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.RESTAURANT), (snap) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), (snap) =>
         setData((p) => ({ ...p, orders: snap.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.CONFERENCE), (snap) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.CONFERENCE), (snap) =>
         setData((p) => ({ ...p, events: snap.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.EXPENSES), (snap) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.EXPENSES), (snap) =>
         setData((p) => ({ ...p, expenses: snap.docs.map((d) => d.data()) }))
       ),
-      onSnapshot(collection(db, COLLECTIONS.ROOMS), (snap) =>
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.ROOMS), (snap) =>
         setData((p) => ({ ...p, rooms: snap.docs.map((d) => d.data()) }))
       ),
     ];
     return () => subs.forEach((u) => u());
-  }, []);
+  }, [hotelId]);
 
   const range = useMemo(() => getRange(preset), [preset]);
   const metrics = useMemo(() => computeMetrics(data, range), [data, range]);

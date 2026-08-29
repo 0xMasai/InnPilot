@@ -1,13 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import {
-  collection,
-  addDoc,
-  onSnapshot,
-  Timestamp,
-} from "firebase/firestore";
-import { db, auth } from "../firebase";
+import { addDoc, onSnapshot, Timestamp } from "firebase/firestore";
+import { auth } from "../firebase";
+import { COLLECTIONS } from "./lib/collections";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import { logAction } from "./lib/audit";
 import { Plus, X, Printer, Search, PieChart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,6 +23,7 @@ interface Expense {
 const departments = ["Kitchen", "Cleaning", "Maintenance", "Front Desk", "Other"];
 
 export default function ExpensesDashboard() {
+  const { hotelId } = useAuth();
   const [open, setOpen] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +44,8 @@ export default function ExpensesDashboard() {
   /* FIRESTORE LISTENER — shared operational data: all staff see all
      expenses (userId still recorded on each entry for accountability). */
   useEffect(() => {
-    const q = collection(db, "expenses");
+    if (!hotelId) return;
+    const q = hotelCollection(hotelId, COLLECTIONS.EXPENSES);
 
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map((doc) => {
@@ -64,7 +64,7 @@ export default function ExpensesDashboard() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   /* 🔍 FILTER */
   const filteredExpenses = expenses.filter((e) => {
@@ -94,7 +94,9 @@ export default function ExpensesDashboard() {
     if (!formData.department || !formData.description || !formData.amount)
       return alert("Fill required fields");
 
-    const ref = await addDoc(collection(db, "expenses"), {
+    if (!hotelId) return alert("No hotel context — please sign in again.");
+
+    const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.EXPENSES), {
       department: formData.department,
       description: formData.description,
       amount: Number(formData.amount),
@@ -102,7 +104,7 @@ export default function ExpensesDashboard() {
       userId: user.uid,
       createdAt: Timestamp.now(),
     });
-    logAction("Expense recorded", "expense", ref.id, `${formData.department} · UGX ${Number(formData.amount).toLocaleString()}`);
+    logAction(hotelId, "Expense recorded", "expense", ref.id, `${formData.department} · UGX ${Number(formData.amount).toLocaleString()}`);
 
     setOpen(false);
     setFormData({

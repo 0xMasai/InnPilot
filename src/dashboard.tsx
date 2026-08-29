@@ -27,10 +27,11 @@ import "tippy.js/dist/tippy.css";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 
 import { auth, db } from "../firebase";
-import { doc, getDoc, collection, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider";
 import { COLLECTIONS } from "./lib/collections";
+import { hotelCollection } from "./lib/hotelScope";
 
 type NotificationItem = {
   id: string;
@@ -295,7 +296,7 @@ const DashboardShell: React.FC = () => {
   const [userName, setUserName] = useState("Loading...");
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, role } = useAuth();
+  const { user, role, hotelId } = useAuth();
 
   const sidebarWidthExpanded = 264;
   const sidebarWidthCollapsed = 76;
@@ -310,8 +311,8 @@ const DashboardShell: React.FC = () => {
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const groups = role === "admin" ? [...baseNav, ...adminNav] : baseNav;
-  const consoleLabel = role === "admin" ? "Admin Console" : "Staff Console";
+  const groups = role === "hotel_admin" ? [...baseNav, ...adminNav] : baseNav;
+  const consoleLabel = role === "hotel_admin" ? "Admin Console" : "Staff Console";
 
   const icons: Record<NotificationItem["type"], React.ReactNode> = {
     "Restaurant Order": <Utensils size={16} className="text-orange-500" />,
@@ -378,8 +379,10 @@ const DashboardShell: React.FC = () => {
     notifSound.current.volume = 0.6;
   }, []);
 
-  // Firestore listeners
+  // Firestore listeners (scoped to this user's hotel)
   useEffect(() => {
+    if (!hotelId) return;
+
     const sources = [
       { col: COLLECTIONS.RESTAURANT, label: "Restaurant Order" },
       { col: COLLECTIONS.BOOKINGS, label: "Room Booking" },
@@ -392,7 +395,7 @@ const DashboardShell: React.FC = () => {
       // document as "added" on load, which would otherwise spam a toast +
       // sound for all historical records each time the dashboard mounts.
       let initialized = false;
-      return onSnapshot(collection(db, src.col), (snap) => {
+      return onSnapshot(hotelCollection(hotelId, src.col), (snap) => {
         if (!initialized) {
           initialized = true;
           return;
@@ -433,7 +436,7 @@ const DashboardShell: React.FC = () => {
     });
 
     return () => unsubscribers.forEach((u) => u());
-  }, []);
+  }, [hotelId]);
 
   // Close notif dropdown when clicking outside
   useEffect(() => {

@@ -29,11 +29,11 @@ const PendingApproval = () => (
         <span className="font-semibold">Hotel Management</span>
       </div>
       <h1 className="text-xl font-bold text-slate-800 mb-2">
-        Account awaiting approval
+        Account not yet active
       </h1>
       <p className="text-sm text-slate-500 mb-6">
-        Your account was created but has not been approved yet. Ask an
-        administrator to activate your access, then sign in again.
+        Your account isn't linked to a hotel yet. Contact your Hotel Admin
+        or Super Admin to get access, then sign in again.
       </p>
       <button
         className="btn btn-primary w-full"
@@ -47,22 +47,26 @@ const PendingApproval = () => (
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  /** Roles allowed to view this route. Defaults to staff + admin. */
+  /** Roles allowed to view this route. Defaults to hotel-level roles. */
   allow?: Role[];
-  /** Where to send signed-out visitors (admin routes use /admin/login). */
+  /** Where to send signed-out visitors. */
   loginPath?: string;
+  /** Where to send a signed-in user whose role isn't in `allow`. */
+  redirectTo?: string;
 }
 
 /**
  * Guards a route behind authentication and role membership.
  * - Signed out            → redirect to login
- * - Signed in, "pending"  → approval-pending screen
+ * - Signed in, "pending"  → not-yet-active screen
  * - Signed in, wrong role → redirect to their own console
+ *   (super_admin → /super-admin, everyone else → /dashboard)
  */
 export default function ProtectedRoute({
   children,
-  allow = ["admin", "staff"],
+  allow = ["hotel_admin", "staff"],
   loginPath = "/login",
+  redirectTo,
 }: ProtectedRouteProps) {
   const { user, role, loading } = useAuth();
 
@@ -70,7 +74,8 @@ export default function ProtectedRoute({
   if (!user) return <Navigate to={loginPath} replace />;
   if (role === "pending") return <PendingApproval />;
   if (role && !allow.includes(role)) {
-    return <Navigate to="/dashboard" replace />;
+    const fallback = redirectTo ?? (role === "super_admin" ? "/super-admin" : "/dashboard");
+    return <Navigate to={fallback} replace />;
   }
   return <>{children}</>;
 }

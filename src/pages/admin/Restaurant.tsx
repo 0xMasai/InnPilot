@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import {
-  collection,
   onSnapshot,
   // deleteDoc,
-  doc,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth } from "../../../firebase";
+import { auth } from "../../../firebase";
+import { hotelCollection, hotelDoc } from "../../lib/hotelScope";
+import { useAuth } from "../../auth/AuthProvider";
 import { Printer, Search, Pencil, Utensils, X } from "lucide-react";
 
 interface Order {
@@ -28,6 +28,7 @@ const categoryColors: Record<typeof categories[number], string> = {
 };
 
 export default function AdminRestaurantDashboard() {
+  const { hotelId } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,9 +42,9 @@ export default function AdminRestaurantDashboard() {
 
 
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser || !hotelId) return;
 
-    const ordersRef = collection(db, "restaurant");
+    const ordersRef = hotelCollection(hotelId, "restaurant");
 
     const unsub = onSnapshot(ordersRef, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
@@ -57,7 +58,7 @@ export default function AdminRestaurantDashboard() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   useEffect(() => {
   let filtered = [...orders];
@@ -170,10 +171,10 @@ export default function AdminRestaurantDashboard() {
   };
 
   const saveEdit = async () => {
-    if (!currentOrder?.id) return;
+    if (!currentOrder?.id || !hotelId) return;
 
     try {
-      await updateDoc(doc(db, "restaurant", currentOrder.id), {
+      await updateDoc(hotelDoc(hotelId, "restaurant", currentOrder.id), {
         clientName: currentOrder.clientName,
         orderDetails: currentOrder.orderDetails,
         category: currentOrder.category,

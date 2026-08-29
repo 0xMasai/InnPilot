@@ -2,15 +2,15 @@
 import { useMemo, useState, useEffect } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import {
-  collection,
   addDoc,
   onSnapshot,
   Timestamp,
-  doc,
   updateDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { auth } from "../firebase";
+import { hotelCollection, hotelDoc } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/flatpickr.min.css";
 import {
@@ -96,6 +96,7 @@ const roomBadge: Record<RoomStatus, string> = {
 };
 
 export default function AccommodationDashboard() {
+  const { hotelId } = useAuth();
   const [open, setOpen] = useState(false);
   const [roomModalOpen, setRoomModalOpen] = useState(false);
 
@@ -125,16 +126,17 @@ export default function AccommodationDashboard() {
   const [filterPayment, setFilterPayment] = useState<"All" | "Paid" | "Pending">("All");
   const [filterStatus, setFilterStatus] = useState<string>("All");
 
-  // Shared operational data: all staff see all bookings and rooms.
+  // Shared operational data: all staff at this hotel see all its bookings and rooms.
   useEffect(() => {
-    const unsubBookings = onSnapshot(collection(db, COLLECTIONS.BOOKINGS), (snapshot) => {
+    if (!hotelId) return;
+    const unsubBookings = onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (snapshot) => {
       setBookings(
         snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Booking) }))
       );
       setLoading(false);
     });
 
-    const unsubRooms = onSnapshot(collection(db, COLLECTIONS.ROOMS), (snapshot) => {
+    const unsubRooms = onSnapshot(hotelCollection(hotelId, COLLECTIONS.ROOMS), (snapshot) => {
       const data = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Room) }));
       data.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
       setRooms(data);
@@ -144,7 +146,7 @@ export default function AccommodationDashboard() {
       unsubBookings();
       unsubRooms();
     };
-  }, []);
+  }, [hotelId]);
 
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -192,8 +194,9 @@ export default function AccommodationDashboard() {
       );
     }
 
+    if (!hotelId) return setFormError("No hotel context — please sign in again.");
     try {
-      const ref = await addDoc(collection(db, COLLECTIONS.BOOKINGS), {
+      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), {
         ...formData,
         roomNumber: formData.roomNumber,
         roomType: room?.type ?? formData.roomType,
@@ -206,7 +209,7 @@ export default function AccommodationDashboard() {
         userId: auth.currentUser?.uid || "unknown",
         createdAt: serverTimestamp(),
       });
-      logAction("Booking created", "booking", ref.id, `${formData.guestName} · room ${formData.roomNumber}`);
+      logAction(hotelId, "Booking created", "booking", ref.id, `${formData.guestName} · room ${formData.roomNumber}`);
 
       setOpen(false);
       setFormData({
@@ -231,8 +234,9 @@ export default function AccommodationDashboard() {
     if (rooms.some((r) => r.number === number)) {
       return setRoomError(`Room ${number} already exists.`);
     }
+    if (!hotelId) return setRoomError("No hotel context — please sign in again.");
     try {
-      const ref = await addDoc(collection(db, COLLECTIONS.ROOMS), {
+      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.ROOMS), {
         number,
         type: roomForm.type,
         price: roomForm.price || 0,
@@ -240,7 +244,7 @@ export default function AccommodationDashboard() {
         createdAt: serverTimestamp(),
         userId: auth.currentUser?.uid || "unknown",
       });
-      logAction("Room added", "room", ref.id, `${number} (${roomForm.type})`);
+      logAction(hotelId, "Room added", "room", ref.id, `${number} (${roomForm.type})`);
       setRoomModalOpen(false);
       setRoomForm({ number: "", type: "Single", status: "Available" });
     } catch (err) {
@@ -250,10 +254,10 @@ export default function AccommodationDashboard() {
   };
 
   const setRoomStatus = async (room: Room, status: RoomStatus) => {
-    if (!room.id || room.status === status) return;
+    if (!room.id || room.status === status || !hotelId) return;
     try {
-      await updateDoc(doc(db, COLLECTIONS.ROOMS, room.id), { status });
-      logAction("Room status changed", "room", room.id, `${room.number}: ${room.status} → ${status}`);
+      await updateDoc(hotelDoc(hotelId, COLLECTIONS.ROOMS, room.id), { status });
+      logAction(hotelId, "Room status changed", "room", room.id, `${room.number}: ${room.status} → ${status}`);
     } catch (err) {
       console.error("Failed to update room status:", err);
     }
@@ -261,13 +265,13 @@ export default function AccommodationDashboard() {
 
   /** Booking lifecycle transitions; keeps the room's status in sync. */
   const transition = async (b: Booking, status: BookingStatus) => {
-    if (!b.id) return;
+    if (!b.id || !hotelId) return;
     try {
-      await updateDoc(doc(db, COLLECTIONS.BOOKINGS, b.id), {
+      await updateDoc(hotelDoc(hotelId, COLLECTIONS.BOOKINGS, b.id), {
         status,
         isOccupied: status === "Checked In",
       });
-      logAction(`Booking ${status.toLowerCase()}`, "booking", b.id, `${b.guestName} · room ${b.roomNumber ?? "-"}`);
+      logAction(hotelId, `Booking ${status.toLowerCase()}`, "booking", b.id, `${b.guestName} · room ${b.roomNumber ?? "-"}`);
       const room = rooms.find((r) => r.number === String(b.roomNumber ?? ""));
       if (room?.id) {
         if (status === "Checked In") await setRoomStatus(room, "Occupied");

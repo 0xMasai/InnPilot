@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { getDocs, query, where } from "firebase/firestore";
+import { auth } from "../firebase";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import { Utensils, DollarSign, BedDouble, ArrowLeft, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -35,6 +37,7 @@ const FIELDS = {
 };
 
 export default function ProfileDashboard() {
+  const { hotelId } = useAuth();
   const [accommodationData, setAccommodationData] = useState<any[]>([]);
   const [conferenceData, setConferenceData] = useState<any[]>([]);
   const [expensesData, setExpensesData] = useState<any[]>([]);
@@ -47,32 +50,35 @@ export default function ProfileDashboard() {
     const fetchData = async () => {
       setLoading(true);
       const user = auth.currentUser;
-      if (!user) return console.log("No user logged in");
+      if (!user || !hotelId) {
+        setLoading(false);
+        return;
+      }
 
       const uid = user.uid;
 
       try {
         // Accommodation
         const accomSnap = await getDocs(
-          query(collection(db, "accomodation"), where("userId", "==", uid))
+          query(hotelCollection(hotelId, "accomodation"), where("userId", "==", uid))
         );
         setAccommodationData(accomSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
         // Conference Rooms
         const confSnap = await getDocs(
-          query(collection(db, "conferenceRooms"), where("userId", "==", uid))
+          query(hotelCollection(hotelId, "conferenceRooms"), where("userId", "==", uid))
         );
         setConferenceData(confSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
         // Expenses
         const expensesSnap = await getDocs(
-          query(collection(db, "expenses"), where("userId", "==", uid))
+          query(hotelCollection(hotelId, "expenses"), where("userId", "==", uid))
         );
         setExpensesData(expensesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
         // Restaurant
         const restaurantSnap = await getDocs(
-          query(collection(db, "restaurant"), where("userId", "==", uid))
+          query(hotelCollection(hotelId, "restaurant"), where("userId", "==", uid))
         );
         setRestaurantData(restaurantSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
       } catch (error) {
@@ -83,7 +89,7 @@ export default function ProfileDashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [hotelId]);
 
   if (loading)
     return (

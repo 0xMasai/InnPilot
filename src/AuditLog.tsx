@@ -2,8 +2,9 @@
 // Admin-only, read-only view of the append-only audit trail.
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { collection, onSnapshot, orderBy, query, limit } from "firebase/firestore";
-import { db } from "../firebase";
+import { onSnapshot, orderBy, query, limit } from "firebase/firestore";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import { Search, ShieldCheck, BedDouble, Utensils, Briefcase, Wallet, User, DoorOpen } from "lucide-react";
 import { COLLECTIONS } from "./lib/collections";
 import { toDateSafe } from "./lib/metrics";
@@ -41,14 +42,16 @@ const entityBadge: Record<AuditEntity, string> = {
 const MAX_ENTRIES = 300;
 
 export default function AuditLogDashboard() {
+  const { hotelId } = useAuth();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterEntity, setFilterEntity] = useState<"All" | AuditEntity>("All");
 
   useEffect(() => {
+    if (!hotelId) return;
     const q = query(
-      collection(db, COLLECTIONS.AUDIT),
+      hotelCollection(hotelId, COLLECTIONS.AUDIT),
       orderBy("at", "desc"),
       limit(MAX_ENTRIES)
     );
@@ -57,7 +60,7 @@ export default function AuditLogDashboard() {
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

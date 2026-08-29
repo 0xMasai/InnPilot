@@ -1,15 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import {
-  collection,
-  addDoc,
-  onSnapshot,
-  Timestamp,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db, auth } from "../firebase";
+import { addDoc, onSnapshot, Timestamp, serverTimestamp } from "firebase/firestore";
+import { auth } from "../firebase";
 import { COLLECTIONS } from "./lib/collections";
+import { hotelCollection } from "./lib/hotelScope";
+import { useAuth } from "./auth/AuthProvider";
 import { logAction } from "./lib/audit";
 import { Plus, X, Printer, Search, Briefcase, Users } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,6 +35,7 @@ interface ConferenceRoom {
 const DEFAULT_ROOMS = ["Room A", "Room B", "Room C", "Room D"];
 
 export default function ConferenceRoomDashboard() {
+  const { hotelId } = useAuth();
   const [open, setOpen] = useState(false);
   const [roomModalOpen, setRoomModalOpen] = useState(false);
   const [roomList, setRoomList] = useState<ConferenceRoom[]>([]);
@@ -69,7 +66,8 @@ export default function ConferenceRoomDashboard() {
   // Firestore listener — shared operational data: every staff member sees
   // all conference bookings (userId still recorded for accountability).
   useEffect(() => {
-    const bookingsQuery = collection(db, "conferenceRooms");
+    if (!hotelId) return;
+    const bookingsQuery = hotelCollection(hotelId, COLLECTIONS.CONFERENCE);
 
     const unsub = onSnapshot(bookingsQuery, (snapshot) => {
       const data = snapshot.docs.map((doc) => {
@@ -86,17 +84,18 @@ export default function ConferenceRoomDashboard() {
     });
 
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   // Conference room inventory (falls back to defaults until rooms are added).
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, COLLECTIONS.CONFERENCE_SPACES), (snap) => {
+    if (!hotelId) return;
+    const unsub = onSnapshot(hotelCollection(hotelId, COLLECTIONS.CONFERENCE_SPACES), (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as ConferenceRoom) }));
       data.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       setRoomList(data);
     });
     return () => unsub();
-  }, []);
+  }, [hotelId]);
 
   const rooms = roomList.length ? roomList.map((r) => r.name) : DEFAULT_ROOMS;
 
@@ -109,15 +108,16 @@ export default function ConferenceRoomDashboard() {
     if (roomList.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
       return setRoomError(`"${name}" already exists.`);
     }
+    if (!hotelId) return setRoomError("No hotel context — please sign in again.");
     try {
-      const ref = await addDoc(collection(db, COLLECTIONS.CONFERENCE_SPACES), {
+      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.CONFERENCE_SPACES), {
         name,
         capacity: Number(roomForm.capacity) || 0,
         hourlyRate: Number(roomForm.hourlyRate) || 0,
         createdAt: serverTimestamp(),
         userId: auth.currentUser?.uid || "unknown",
       });
-      logAction("Conference room added", "room", ref.id, name);
+      logAction(hotelId, "Conference room added", "room", ref.id, name);
       setRoomModalOpen(false);
       setRoomForm({ name: "" });
     } catch (err) {
@@ -149,8 +149,10 @@ export default function ConferenceRoomDashboard() {
     if (!formData.organizerName || !formData.room || !formData.durationHours)
       return alert("Please fill all required fields.");
 
+    if (!hotelId) return alert("No hotel context — please sign in again.");
+
     try {
-      const ref = await addDoc(collection(db, "conferenceRooms"), {
+      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.CONFERENCE), {
         organizerName: formData.organizerName,
         email: formData.email,
         phoneNumber: formData.phoneNumber ?? "",
@@ -162,7 +164,7 @@ export default function ConferenceRoomDashboard() {
         userId: user.uid,
         createdAt: Timestamp.now(),
       });
-      logAction("Event booked", "event", ref.id, `${formData.organizerName} · ${formData.room} · UGX ${Number(formData.price).toLocaleString()}`);
+      logAction(hotelId, "Event booked", "event", ref.id, `${formData.organizerName} · ${formData.room} · UGX ${Number(formData.price).toLocaleString()}`);
 
       setOpen(false);
       setFormData({
