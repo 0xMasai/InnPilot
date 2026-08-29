@@ -56,6 +56,48 @@ service cloud.firestore {
       return isSignedIn() && myRole() in ['hotel_admin', 'staff'] && myHotelId() == hotelId;
     }
 
+    // ---------- Lightweight write validation ----------
+    // Not full schema enforcement (the app is still actively evolving
+    // field shapes) — just enough to close the two cheapest abuse paths:
+    // impersonating another user's actions, and unbounded payloads.
+
+    // A new doc's `userId` must be the caller's own uid. Only checked on
+    // create: on update, request.resource.data.userId reflects the
+    // ORIGINAL author (most updates only patch a `status` field), and
+    // staff legitimately update records they didn't create (e.g. a
+    // different shift checking a guest out).
+    function ownedByCaller() {
+      return request.resource.data.get('userId', null) == request.auth.uid;
+    }
+
+    // Field-count cap: cheap guard against a compromised/buggy client
+    // stuffing arbitrary extra data into a document.
+    function withinFieldLimit() {
+      return request.resource.data.size() <= 40;
+    }
+
+    // Room status must match one of the values the UI actually offers
+    // (see ROOM_STATUSES in src/lib/collections.ts). Only checked when
+    // the field is present so partial updates that don't touch it pass.
+    function validRoomStatus() {
+      return !('status' in request.resource.data) ||
+        request.resource.data.status in
+          ['Available', 'Occupied', 'Cleaning', 'Maintenance', 'Out of Service'];
+    }
+
+    // Booking status must match BOOKING_STATUSES in src/lib/collections.ts.
+    function validBookingStatus() {
+      return !('status' in request.resource.data) ||
+        request.resource.data.status in
+          ['Confirmed', 'Checked In', 'Checked Out', 'Cancelled', 'No Show'];
+    }
+
+    // Restaurant order status must match OrderStatus in src/Restaurant.tsx.
+    function validOrderStatus() {
+      return !('status' in request.resource.data) ||
+        request.resource.data.status in ['Open', 'Served', 'Paid', 'Cancelled'];
+    }
+
     // ---------- Users (top-level; see note above) ----------
     match /users/{userId} {
       // Self, super_admin, or the hotel_admin of whatever hotel this user
@@ -140,34 +182,46 @@ service cloud.firestore {
       // may delete. super_admin has no access here by design (platform
       // operator manages tenants, not day-to-day hotel operations).
       match /rooms/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validRoomStatus();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validRoomStatus();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
       match /accomodation/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validBookingStatus();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validBookingStatus();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
       match /restaurant/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit() && validOrderStatus();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit() && validOrderStatus();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
       match /conferenceRooms/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
       // Conference room inventory (the physical spaces; bookings live in
       // "conferenceRooms" above for legacy reasons).
       match /conferenceSpaces/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
       match /expenses/{docId} {
-        allow read, create, update: if isStaffOf(hotelId);
+        allow read: if isStaffOf(hotelId);
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
+        allow update: if isStaffOf(hotelId) && withinFieldLimit();
         allow delete: if isHotelAdminOf(hotelId);
       }
 
@@ -176,8 +230,7 @@ service cloud.firestore {
       // only this hotel's admin may read; nothing is ever edited/deleted.
       match /auditLog/{docId} {
         allow read: if isHotelAdminOf(hotelId);
-        allow create: if isStaffOf(hotelId) &&
-          request.resource.data.userId == request.auth.uid;
+        allow create: if isStaffOf(hotelId) && ownedByCaller() && withinFieldLimit();
         allow update, delete: if false;
       }
     }
