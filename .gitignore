@@ -26,3 +26,7 @@ dist-ssr
 
 
 .env
+
+# Firebase Admin SDK service account keys (scripts/admin) — never commit these
+serviceAccountKey.json
+*serviceAccountKey*.json
