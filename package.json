@@ -16,7 +16,9 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "bootstrap": "tsx scripts/admin/bootstrap.ts",
-    "migrate": "tsx scripts/admin/migrate.ts"
+    "migrate": "tsx scripts/admin/migrate.ts",
+    "test:rules": "vitest run tests/rules",
+    "test:rules:watch": "vitest tests/rules"
   },
   "build": {
     "appId": "com.hotel.management",
@@ -73,6 +75,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^24.6.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
@@ -84,12 +87,14 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
     "firebase-admin": "^14.3.0",
+    "firebase-tools": "^15.28.2",
     "globals": "^16.4.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
     "tsx": "^4.23.12",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.45.0",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vitest": "^4.1.11"
   }
 }
