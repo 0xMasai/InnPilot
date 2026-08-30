@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, memoryLocalCache, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 export const firebaseConfig = {
@@ -13,9 +13,24 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-
 const app = initializeApp(firebaseConfig);
 
+// Explicitly use Firestore's memory-only cache. The web SDK already defaults
+// to memory cache when no persistent cache is configured, but making this
+// explicit prevents a future persistence change from causing development
+// records to survive a reload unexpectedly.
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+});
+
+if (import.meta.env.DEV) {
+  console.info("[Firebase runtime]", {
+    projectId: firebaseConfig.projectId,
+    authDomain: firebaseConfig.authDomain,
+    storageBucket: firebaseConfig.storageBucket,
+    firestoreCache: "memory-only",
+  });
+}
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
 export const storage = getStorage(app);
