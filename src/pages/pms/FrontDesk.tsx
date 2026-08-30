@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { onSnapshot } from "firebase/firestore";
-import { CalendarCheck2, LogIn, LogOut, Wallet } from "lucide-react";
+import { CalendarCheck2, LogIn, LogOut } from "lucide-react";
 import { COLLECTIONS } from "../../lib/collections";
 import { hotelCollection } from "../../lib/hotelScope";
 import { toPMSDate, isSameDay, money } from "../../lib/pms";
