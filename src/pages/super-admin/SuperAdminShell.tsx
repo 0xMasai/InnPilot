@@ -8,13 +8,13 @@ import {
   Hotel,
   LogOut,
   Menu,
-  ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../../../firebase";
 import { useAuth } from "../../auth/AuthProvider";
+import innpilotMark from "../../assets/brand/innpilot-mark.png";
 
 type NavItem = { icon: React.ReactNode; label: string; to: string; end?: boolean };
 
@@ -53,11 +53,9 @@ export default function SuperAdminShell() {
   const NavContent = ({ onNavigate }: { onNavigate?: () => void }) => (
     <>
       <div className="flex items-center gap-2.5 px-5 h-16 border-b border-[var(--rail-border)]">
-        <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
-          <ShieldCheck className="size-5 text-blue-400" />
-        </div>
+        <img src={innpilotMark} alt="InnPilot" className="w-9 h-9 object-contain" />
         <div className="leading-tight">
-          <p className="text-[15px] font-semibold text-white">HotelMS</p>
+          <p className="text-[15px] font-semibold text-white tracking-tight">InnPilot</p>
           <p className="text-[11px] text-[var(--rail-text-muted)]">Platform Console</p>
         </div>
       </div>
@@ -80,9 +78,9 @@ export default function SuperAdminShell() {
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-blue-400" />
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-[var(--brand-cyan)]" />
                 )}
-                <span className={isActive ? "text-blue-300" : ""}>{item.icon}</span>
+                <span className={isActive ? "text-[var(--brand-cyan)]" : ""}>{item.icon}</span>
                 <span>{item.label}</span>
               </>
             )}
@@ -168,7 +166,7 @@ export default function SuperAdminShell() {
             <Outlet />
           </div>
           <footer className="px-6 py-4 border-t border-slate-200 text-xs text-slate-400 text-center">
-            © {new Date().getFullYear()} Hotel Management · Platform Console
+            © {new Date().getFullYear()} InnPilot · Platform Console
           </footer>
         </main>
       </div>

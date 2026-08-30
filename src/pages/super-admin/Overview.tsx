@@ -44,7 +44,7 @@ export default function SuperAdminOverview() {
       <div className="page-header">
         <div>
           <h2 className="page-title">Platform Overview</h2>
-          <p className="page-subtitle">Every hotel on HotelMS, at a glance.</p>
+          <p className="page-subtitle">Every hotel on InnPilot, at a glance.</p>
         </div>
         <Link to="/super-admin/hotels" className="btn btn-primary btn-sm">
           <Hotel size={15} /> Manage Hotels

@@ -1,201 +1,258 @@
 import { motion } from "framer-motion";
-import { Swiper, SwiperSlide } from "swiper/react";
-import 'swiper/swiper-bundle.css';
-// import "swiper/css";                          // REQUIRED
-// import "swiper/css/pagination";               // REQUIRED
-import { Autoplay, Pagination } from "swiper/modules";
-
-import { BedDouble, Utensils, Briefcase, PieChart, Hotel } from "lucide-react";
 import { Link } from "react-router-dom";
+import {
+  BedDouble,
+  Utensils,
+  Briefcase,
+  PieChart,
+  Users,
+  FileText,
+  ClipboardList,
+  Building2,
+  LayoutDashboard,
+  ArrowRight,
+  CheckCircle2,
+} from "lucide-react";
 
-import backgroundImage from "../assets/hotel.jpeg";
-import preview1 from "../assets/preview.png";
-import preview2 from "../assets/preview1.png";
+import innpilotLogoLight from "../assets/brand/innpilot-logo-full-light.png";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+};
+
+const painPoints = [
+  "Reservations, dining, conferences and finances scattered across disconnected tools",
+  "Manual, spreadsheet-driven reservation management prone to double bookings",
+  "Little visibility into what's actually happening across departments",
+  "Reporting that takes hours to assemble instead of minutes",
+  "Staff coordination that breaks down between front desk, kitchen and housekeeping",
+  "Enterprise PMS software that's too complicated, or too expensive, for an independent property",
+];
+
+const capabilities: { icon: React.ReactNode; title: string; description: string }[] = [
+  { icon: <LayoutDashboard size={20} />, title: "Front desk & room board", description: "A live view of every room's status, ready for fast check-in and check-out." },
+  { icon: <ClipboardList size={20} />, title: "Reservations", description: "Track bookings from request to check-out without double-booking a room." },
+  { icon: <BedDouble size={20} />, title: "Rooms & accommodation", description: "Manage room types, availability and rates in one place." },
+  { icon: <Users size={20} />, title: "Guest management", description: "Guest profiles, stay history and balances, always up to date." },
+  { icon: <Utensils size={20} />, title: "Restaurant", description: "Take and track dining orders alongside the rest of your operation." },
+  { icon: <Briefcase size={20} />, title: "Conference & events", description: "Book meeting spaces and events without a separate calendar." },
+  { icon: <PieChart size={20} />, title: "Expenses", description: "Log operational spending by department as it happens." },
+  { icon: <FileText size={20} />, title: "Reports", description: "Management reports you can review, print and export." },
+  { icon: <Building2 size={20} />, title: "Multi-property management", description: "Run more than one hotel from a single, role-based platform." },
+];
+
+const audiences = [
+  "Boutique hotels",
+  "Lodges",
+  "Guest houses",
+  "Small hotel groups",
+  "Independent hospitality businesses",
+];
+
+const PreviewMock = () => (
+  <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#0b1220] w-full max-w-2xl mx-auto">
+    <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/10">
+      <span className="w-2.5 h-2.5 rounded-full bg-white/20" />
+      <span className="w-2.5 h-2.5 rounded-full bg-white/20" />
+      <span className="w-2.5 h-2.5 rounded-full bg-white/20" />
+    </div>
+    <div className="flex">
+      <div className="w-40 sm:w-48 border-r border-white/10 py-4 px-3 space-y-1 hidden sm:block">
+        {[
+          { label: "Overview", active: true },
+          { label: "Accommodation" },
+          { label: "Guests" },
+          { label: "Restaurant" },
+          { label: "Conference" },
+          { label: "Expenses" },
+          { label: "Reports" },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className={`text-[12px] px-3 py-2 rounded-lg ${
+              item.active ? "bg-[rgba(45,212,200,0.16)] text-white font-medium" : "text-[#8b97ad]"
+            }`}
+          >
+            {item.label}
+          </div>
+        ))}
+      </div>
+      <div className="flex-1 p-5 space-y-3 bg-[#f5f7fa]">
+        <div className="text-slate-800 font-semibold text-sm mb-1">Overview</div>
+        <div className="grid grid-cols-3 gap-2">
+          {["Occupancy", "Arrivals today", "Open orders"].map((label) => (
+            <div key={label} className="bg-white rounded-lg p-3 border border-slate-200">
+              <div className="text-[10px] text-slate-400 mb-1">{label}</div>
+              <div className="h-2 w-10 rounded bg-[#0e93a3]/30" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-white rounded-lg p-3 border border-slate-200">
+          <div className="text-[10px] text-slate-400 mb-2">Room board</div>
+          <div className="grid grid-cols-6 gap-1.5">
+            {Array.from({ length: 18 }).map((_, i) => (
+              <div
+                key={i}
+                className={`h-4 rounded ${i % 5 === 0 ? "bg-[#0e93a3]/40" : "bg-slate-100"}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 const LandingPage = () => {
   return (
-    <div className="min-h-screen flex flex-col text-gray-800 font-poppins relative">
-      {/* Background Image */}
-      <div
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat filter blur-md"
-        style={{ backgroundImage: `url(${backgroundImage})` }}
-      ></div>
-
-      {/* Gradient Overlay */}
-      <div className="absolute inset-0 bg-linear-to-b from-black/60 via-black/40 to-black/70"></div>
-
-      {/* Page Content */}
-      <div className="relative z-10 flex flex-col">
-        {/* Navbar */}
-        <nav className="flex justify-between items-center px-10 py-5 bg-white/60 backdrop-blur-xl shadow-sm border-b border-white/40 sticky top-0 z-50">
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center space-x-3"
-          >
-            <Hotel className="w-8 h-8 text-blue-600" />
-            <span className="text-xl font-extrabold text-slate-900">
-              Hotel Management
-            </span>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="space-x-4 flex items-center"
-          >
+    <div className="min-h-screen w-full font-poppins text-slate-800" style={{ background: "var(--app-bg)" }}>
+      {/* Nav */}
+      <nav className="sticky top-0 z-50 backdrop-blur-xl bg-white/80 border-b border-slate-200">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
+          <img src={innpilotLogoLight} alt="InnPilot" className="h-8 w-auto object-contain"  />
+          <div className="flex items-center gap-3">
             <Link
               to="/login"
-              className="px-5 py-2.5 text-sm font-semibold text-blue-700 border border-blue-700 rounded-xl hover:bg-blue-700 hover:text-white transition-all duration-300 shadow-sm"
+              className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition"
             >
-              Login
+              Sign In
             </Link>
-            <Link
-              to="/signup"
-              className="px-5 py-2.5 text-sm font-semibold text-blue-700 border border-blue-700 rounded-xl hover:bg-blue-700 hover:text-white transition-all duration-300 shadow-sm"
-            >
-              Sign Up
+            <Link to="/login" className="btn btn-primary text-sm px-4 py-2">
+              Get Started
             </Link>
-          </motion.div>
-        </nav>
+          </div>
+        </div>
+      </nav>
 
-        {/* Hero */}
-        <section className="flex flex-col md:flex-row items-center justify-between px-10 md:px-20 mt-24 gap-16 relative">
-          <motion.div
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
-            className="flex-1 space-y-6 max-w-xl"
-          >
-            <h2 className="text-5xl md:text-6xl font-extrabold leading-tight text-white drop-shadow-lg">
-              Streamline Your Hotel Operations Effortlessly
-            </h2>
-            <p className="text-gray-200 text-lg leading-relaxed">
-              All-in-one hotel management solution to handle reservations, dining, expenses, and conferences with ease.
+      {/* Hero */}
+      <section className="relative overflow-hidden" style={{ background: "var(--rail)" }}>
+        <div className="max-w-6xl mx-auto px-6 pt-20 pb-24 grid lg:grid-cols-2 gap-12 items-center">
+          <motion.div initial="hidden" animate="show" variants={fadeUp}>
+            <span className="inline-block text-xs font-semibold tracking-wide uppercase text-[var(--brand-cyan)] mb-4">
+              The operating system for independent hotels
+            </span>
+            <h1 className="text-4xl sm:text-5xl font-bold text-white leading-tight mb-5">
+              Run your hotel. Smarter.
+            </h1>
+            <p className="text-[var(--rail-text)] text-base sm:text-lg leading-relaxed mb-8 max-w-xl">
+              InnPilot brings reservations, rooms, guests, payments, restaurant operations,
+              housekeeping and reporting into one simple platform built for independent hotels.
             </p>
-
-            <div className="flex gap-4 pt-2">
-              <Link
-                to="/signup"
-                className="px-6 py-3 bg-blue-700 text-white rounded-xl font-semibold hover:bg-blue-800 shadow-lg transition"
-              >
-                Get Started
+            <div className="flex flex-wrap gap-3">
+              <Link to="/login" className="btn btn-primary px-6 py-3 text-sm inline-flex items-center gap-2">
+                Get Started <ArrowRight size={16} />
               </Link>
               <Link
-                to="/admin/login"
-                className="px-6 py-3 bg-white/80 backdrop-blur-xl border border-gray-200 rounded-xl font-semibold text-blue-700 hover:border-blue-500 hover:text-blue-800 shadow-md transition"
+                to="/login"
+                className="px-6 py-3 text-sm font-semibold rounded-lg border border-white/15 text-white hover:bg-white/5 transition"
               >
-                Admin Login
+                Sign In
               </Link>
             </div>
           </motion.div>
-
-          {/* Mockup + Swiper */}
-          <motion.div
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7, delay: 0.2 }}
-            className="flex-1 flex justify-center"
-          >
-            <div className="relative w-full max-w-md">
-              {/* Glow */}
-              <div className="absolute -inset-5 bg-linear-to-tr from-blue-300/40 via-blue-200/20 to-transparent rounded-3xl blur-3xl opacity-80"></div>
-
-              {/* Card */}
-              <div className="relative bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/40">
-                <div className="bg-blue-700 text-white text-center py-3 font-medium tracking-wide">
-                  Dashboard Preview
-                </div>
-
-                {/* Swiper Slider */}
-                <div className="h-64 w-full overflow-hidden">
-                  <Swiper
-                    modules={[Pagination, Autoplay]}
-                    pagination={{ clickable: true }}
-                    loop={true}
-                    slidesPerView={1}
-                    autoplay={{
-                      delay: 3000,
-                      disableOnInteraction: false,
-                    }}
-                    className="h-full w-full"
-                  >
-                    <SwiperSlide className="w-full h-full">
-                      <img
-                        src={preview1}
-                        alt="Dashboard Preview 1"
-                        className="w-full h-full object-cover"
-                      />
-                    </SwiperSlide>
-
-                    <SwiperSlide className="w-full h-full">
-                      <img
-                        src={preview2}
-                        alt="Dashboard Preview 2"
-                        className="w-full h-full object-cover"
-                      />
-                    </SwiperSlide>
-                  </Swiper>
-                </div>
-              </div>
-            </div>
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.1 }}>
+            <PreviewMock />
           </motion.div>
-        </section>
+        </div>
+      </section>
 
-        {/* Features */}
-        <section className="mt-32 px-10 md:px-24">
-          <h3 className="text-4xl font-extrabold text-center text-white mb-16 drop-shadow-lg">
-            Manage Every Department with Ease
-          </h3>
+      {/* Why InnPilot */}
+      <section className="max-w-6xl mx-auto px-6 py-20">
+        <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} variants={fadeUp} className="max-w-2xl mb-10">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-3">Why InnPilot</h2>
+          <p className="text-slate-500">
+            Independent hotels shouldn't have to run on the same disconnected tools that make daily operations harder than they need to be.
+          </p>
+        </motion.div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {painPoints.map((point, i) => (
+            <motion.div
+              key={i}
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true }}
+              variants={fadeUp}
+              transition={{ delay: i * 0.05 }}
+              className="flex items-start gap-3 card p-4"
+            >
+              <span className="mt-0.5 shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--primary-soft)" }}>
+                <CheckCircle2 size={14} style={{ color: "var(--primary)" }} />
+              </span>
+              <p className="text-sm text-slate-600">{point}</p>
+            </motion.div>
+          ))}
+        </div>
+      </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-            {[
-              {
-                icon: <BedDouble size={34} />,
-                title: "Accommodation",
-                desc: "Easily manage room bookings, check-ins, and guest profiles.",
-              },
-              {
-                icon: <Utensils size={34} />,
-                title: "Restaurant",
-                desc: "Track meal orders, dining reservations, and kitchen inventory.",
-              },
-              {
-                icon: <Briefcase size={34} />,
-                title: "Conference",
-                desc: "Organize meeting spaces and handle billing seamlessly.",
-              },
-              {
-                icon: <PieChart size={34} />,
-                title: "Expenses",
-                desc: "Monitor your hotel’s financial performance in real-time.",
-              },
-            ].map((f, i) => (
+      {/* Core capabilities */}
+      <section className="py-20" style={{ background: "var(--surface-muted)" }}>
+        <div className="max-w-6xl mx-auto px-6">
+          <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} variants={fadeUp} className="max-w-2xl mb-10">
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-3">Everything your hotel needs, in one place</h2>
+            <p className="text-slate-500">Built around the day-to-day of running an independent property.</p>
+          </motion.div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {capabilities.map((c, i) => (
               <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
+                key={c.title}
+                initial="hidden"
+                whileInView="show"
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
-                className="bg-white/90 backdrop-blur-xl p-8 rounded-3xl shadow-xl border border-white/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 text-center"
+                variants={fadeUp}
+                transition={{ delay: (i % 3) * 0.05 }}
+                className="card p-5"
               >
-                <div className="flex justify-center mb-4 text-blue-700">{f.icon}</div>
-                <h4 className="text-xl font-bold mb-2 text-blue-900">{f.title}</h4>
-                <p className="text-gray-600 text-sm leading-relaxed">{f.desc}</p>
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: "var(--primary-soft)", color: "var(--primary)" }}>
+                  {c.icon}
+                </div>
+                <h3 className="font-semibold text-slate-800 mb-1">{c.title}</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{c.description}</p>
               </motion.div>
             ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Footer */}
-        <footer className="text-center text-gray-200 py-8 bg-black/50 border-t border-white/20 mt-24">
-          <p className="text-sm">
-            © {new Date().getFullYear()}{" "}
-            <span className="font-semibold text-blue-300">Hotel Management</span>. All rights reserved.
-          </p>
-        </footer>
-      </div>
+      {/* Built for independent hotels */}
+      <section className="max-w-6xl mx-auto px-6 py-20">
+        <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} variants={fadeUp} className="text-center max-w-2xl mx-auto mb-10">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-3">Built for independent hotels</h2>
+          <p className="text-slate-500">Not a scaled-down enterprise suite — a platform sized and priced for properties like yours.</p>
+        </motion.div>
+        <div className="flex flex-wrap justify-center gap-3">
+          {audiences.map((a) => (
+            <span key={a} className="px-4 py-2 rounded-full text-sm font-medium card" style={{ color: "var(--text-secondary)" }}>
+              {a}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section className="relative overflow-hidden" style={{ background: "var(--rail)" }}>
+        <div className="max-w-4xl mx-auto px-6 py-20 text-center">
+          <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} variants={fadeUp}>
+            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">Your hotel deserves better tools.</h2>
+            <p className="text-[var(--rail-text)] mb-8 max-w-xl mx-auto">
+              Start running your property with InnPilot.
+            </p>
+            <Link to="/login" className="btn btn-primary px-8 py-3 text-sm inline-flex items-center gap-2">
+              Get Started <ArrowRight size={16} />
+            </Link>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200 py-8">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <img src={innpilotLogoLight} alt="InnPilot" className="h-6 w-auto object-contain opacity-70" />
+          </div>
+          <p className="text-xs text-slate-400">© {new Date().getFullYear()} InnPilot · Built by Masai Labs</p>
+        </div>
+      </footer>
     </div>
   );
 };

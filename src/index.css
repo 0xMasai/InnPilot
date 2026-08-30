@@ -9,20 +9,25 @@
    1. DESIGN TOKENS
    ------------------------------------------------------------ */
 :root {
-  /* Brand / primary */
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-active: #1e40af;
-  --primary-soft: #eff6ff;
-  --primary-border: #bfdbfe;
+  /* Brand / primary — InnPilot teal/cyan, sourced from the logo mark */
+  --primary: #0e93a3;
+  --primary-hover: #0c7c8a;
+  --primary-active: #0a6672;
+  --primary-soft: #ecfeff;
+  --primary-border: #a5e9ef;
 
-  /* Dark navigation rail */
+  /* InnPilot brand accent (the brighter cyan edge of the logo gradient) */
+  --brand-cyan: #2dd4c8;
+  --brand-teal: #0e93a3;
+  --brand-navy: #0b1220;
+
+  /* Dark navigation rail — matches the logo's navy background */
   --rail: #0b1220;
   --rail-2: #111a30;
   --rail-border: rgba(255, 255, 255, 0.08);
   --rail-text: #c7d0e0;
   --rail-text-muted: #8b97ad;
-  --rail-active: rgba(59, 130, 246, 0.16);
+  --rail-active: rgba(45, 212, 200, 0.16);
 
   /* Surfaces & backgrounds */
   --app-bg: #f5f7fa;

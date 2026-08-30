@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/login";
+import LandingPage from "./pages/home";
 import ProfilePage from "./profile";
 import DashboardShell from "./dashboard";
 import OverviewDashboard from "./Overview";
@@ -28,6 +29,7 @@ import ProtectedRoute from "./auth/ProtectedRoute";
 function App() {
   return <AuthProvider><Routes>
     <Route path="/" element={<Navigate to="/login" replace />} />
+    <Route path="/landing" element={<LandingPage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/admin/dashboard" element={<Navigate to="/dashboard" replace />} />
     <Route path="/admin/login" element={<Navigate to="/login" replace />} />

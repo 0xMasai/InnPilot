@@ -120,7 +120,7 @@ export default function ExpensesDashboard() {
   const printExpense = (e: Expense) => {
     const win = window.open("", "PRINT", "width=400,height=600");
     if (!win) return;
-    win.document.write(`<h2>Hotel Management</h2>`);
+    win.document.write(`<h2>InnPilot</h2>`);
     win.document.write(`<h3>Expense Voucher</h3>`);
     win.document.write(`<p><b>Department:</b> ${e.department}</p>`);
     win.document.write(`<p><b>Description:</b> ${e.description}</p>`);

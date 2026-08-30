@@ -3,7 +3,8 @@ import { Navigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase";
 import { useAuth, type Role } from "./AuthProvider";
-import { Hotel, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
+import innpilotMark from "../assets/brand/innpilot-mark-on-light.png";
 
 const FullScreenSpinner = () => (
   <div
@@ -25,8 +26,8 @@ const PendingApproval = () => (
         <Clock className="size-6 text-blue-500" />
       </div>
       <div className="flex items-center justify-center gap-2 mb-2 text-slate-800">
-        <Hotel className="size-5 text-blue-500" />
-        <span className="font-semibold">Hotel Management</span>
+        <img src={innpilotMark} alt="InnPilot" className="w-6 h-6 object-contain" />
+        <span className="font-semibold">InnPilot</span>
       </div>
       <h1 className="text-xl font-bold text-slate-800 mb-2">
         Account not yet active

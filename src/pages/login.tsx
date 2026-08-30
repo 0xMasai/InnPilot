@@ -4,7 +4,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../firebase";
-import { Eye, EyeOff, Hotel, ShieldCheck, BedDouble, Utensils } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, BedDouble, Utensils } from "lucide-react";
+import innpilotLogoDark from "../assets/brand/innpilot-logo-full-dark.png";
+import innpilotLogoLight from "../assets/brand/innpilot-logo-full-light.png";
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -53,20 +55,12 @@ const LoginPage = () => {
     <div className="min-h-screen w-full grid lg:grid-cols-2 font-poppins" style={{ background: "var(--app-bg)" }}>
       {/* Brand panel */}
       <div className="relative hidden lg:flex flex-col justify-between p-12 text-white overflow-hidden" style={{ background: "var(--rail)" }}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-500/15 flex items-center justify-center">
-            <Hotel className="size-6 text-blue-400" />
-          </div>
-          <div className="leading-tight">
-            <p className="text-lg font-semibold">Hotel Management</p>
-            <p className="text-xs text-[var(--rail-text-muted)]">Staff Console</p>
-          </div>
-        </div>
+        <img src={innpilotLogoDark} alt="InnPilot" className="h-10 w-auto object-contain" />
 
         <div className="max-w-sm">
-          <h1 className="text-3xl font-bold leading-tight mb-3">Run every department from one calm, reliable console.</h1>
+          <h1 className="text-3xl font-bold leading-tight mb-3">Run your hotel. Smarter.</h1>
           <p className="text-[var(--rail-text)] text-sm leading-relaxed">
-            Reservations, dining, conferences and finances — organized, real-time, and built for daily operations.
+            Everything you need to run your hotel, in one place — reservations, dining, conferences and finances, organized and real-time.
           </p>
           <div className="mt-8 space-y-3">
             {[
@@ -75,14 +69,14 @@ const LoginPage = () => {
               { icon: <ShieldCheck size={16} />, label: "Secure, role-based access" },
             ].map((f, i) => (
               <div key={i} className="flex items-center gap-3 text-sm text-[var(--rail-text)]">
-                <span className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center text-blue-300">{f.icon}</span>
+                <span className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center text-[var(--brand-cyan)]">{f.icon}</span>
                 {f.label}
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs text-[var(--rail-text-muted)]">© {new Date().getFullYear()} Hotel Management · Built by Masai Labs</p>
+        <p className="text-xs text-[var(--rail-text-muted)]">© {new Date().getFullYear()} InnPilot · Built by Masai Labs</p>
       </div>
 
       {/* Form panel */}
@@ -93,15 +87,12 @@ const LoginPage = () => {
           transition={{ duration: 0.4 }}
           className="w-full max-w-md"
         >
-          <div className="lg:hidden flex items-center gap-2.5 mb-8">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
-              <Hotel className="size-5 text-blue-500" />
-            </div>
-            <span className="text-lg font-semibold text-slate-800">Hotel Management</span>
+          <div className="lg:hidden flex items-center mb-8">
+            <img src={innpilotLogoLight} alt="InnPilot" className="h-9 w-auto object-contain" />
           </div>
 
-          <h2 className="text-2xl font-bold text-slate-800 mb-1">Staff sign in</h2>
-          <p className="text-slate-500 text-sm mb-8">Log in to access your dashboard.</p>
+          <h2 className="text-2xl font-bold text-slate-800 mb-1">Welcome to InnPilot</h2>
+          <p className="text-slate-500 text-sm mb-8">Everything you need to run your hotel, in one place.</p>
 
           {notice && (
             <div

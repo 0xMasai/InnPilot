@@ -12,7 +12,6 @@ import {
   Utensils,
   Briefcase,
   PieChart,
-  Hotel,
   ClipboardList,
   ReceiptText,
   CalendarDays,
@@ -25,6 +24,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import innpilotMark from "./assets/brand/innpilot-mark.png";
 
 import { auth, db } from "../firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
@@ -198,25 +198,30 @@ const SidebarContent: React.FC<{
   showCollapseBtn?: boolean;
 }> = ({ collapsed, groups, consoleLabel, userName, onNavigate, onLogout, onToggleCollapse, showCollapseBtn }) => (
   <>
-    <div className="flex items-center justify-between px-5 h-16 border-b border-[var(--rail-border)]">
+    <div
+      className={`flex items-center border-b border-[var(--rail-border)] h-16 ${
+        collapsed ? "flex-col justify-center gap-1 px-2 py-2" : "justify-between px-5"
+      }`}
+    >
       {!collapsed && (
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
-            <Hotel className="size-5 text-blue-400" />
-          </div>
-          <div className="leading-tight">
-            <p className="text-[15px] font-semibold text-white">Hotel Management</p>
-            <p className="text-[11px] text-[var(--rail-text-muted)]">{consoleLabel}</p>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img src={innpilotMark} alt="InnPilot" className="w-9 h-9 shrink-0 object-contain" />
+          <div className="leading-tight min-w-0">
+            <p className="text-[15px] font-semibold text-white tracking-tight truncate">InnPilot</p>
+            <p className="text-[11px] text-[var(--rail-text-muted)] truncate">{consoleLabel}</p>
           </div>
         </div>
+      )}
+      {collapsed && (
+        <img src={innpilotMark} alt="InnPilot" className="w-7 h-7 object-contain" />
       )}
       {showCollapseBtn && (
         <button
           onClick={onToggleCollapse}
-          className="p-2 rounded-lg hover:bg-white/10 transition text-slate-300"
+          className={`rounded-lg hover:bg-white/10 transition text-slate-300 ${collapsed ? "p-1" : "p-2"}`}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <Menu size={20} />
+          <Menu size={collapsed ? 16 : 20} />
         </button>
       )}
     </div>
@@ -254,9 +259,9 @@ const SidebarContent: React.FC<{
                   {({ isActive }) => (
                     <>
                       {isActive && !collapsed && (
-                        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-blue-400" />
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r bg-[var(--brand-cyan)]" />
                       )}
-                      <span className={isActive ? "text-blue-300" : ""}>{item.icon}</span>
+                      <span className={isActive ? "text-[var(--brand-cyan)]" : ""}>{item.icon}</span>
                       {!collapsed && <span>{item.label}</span>}
                     </>
                   )}
@@ -659,7 +664,7 @@ const DashboardShell: React.FC = () => {
             </div>
 
             <footer className="px-6 py-4 border-t border-slate-200 text-xs text-slate-400 text-center">
-              © {new Date().getFullYear()} Hotel Management · Built by Masai Labs
+              © {new Date().getFullYear()} InnPilot · Built by Masai Labs
             </footer>
           </main>
       </div>

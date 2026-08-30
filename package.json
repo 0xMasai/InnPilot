@@ -5,7 +5,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "author": "Felix Masai",
-  "description": "Hotel Management Desktop Application",
+  "description": "InnPilot — the operating system for independent hotels",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "com.hotel.management",
-    "productName": "Hotel Management",
+    "productName": "InnPilot",
     "directories": {
       "output": "dist-electron"
     },
