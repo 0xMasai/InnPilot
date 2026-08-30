@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, getDoc, onSnapshot, serverTimestamp, Timestamp } from "firebase/firestore";
+import { addDoc, getDoc, onSnapshot, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { CalendarPlus, Search } from "lucide-react";
 import { COLLECTIONS, ACTIVE_BOOKING_STATUSES, type BookingStatus } from "../../lib/collections";
-import { hotelCollection, hotelDocRef } from "../../lib/hotelScope";
+import { hotelCollection, hotelDoc, hotelDocRef } from "../../lib/hotelScope";
 import { bookingOverlaps, bookingDays, toPMSDate, money } from "../../lib/pms";
 import { useAuth } from "../../auth/AuthProvider";
 
@@ -33,9 +33,12 @@ const makeReservationId = () => {
   return `RSV-${stamp}-${suffix}`;
 };
 
+const reservationStatuses: BookingStatus[] = ["Confirmed", "Checked In", "Checked Out", "Cancelled", "No Show"];
+
 export default function Reservations() {
   const { hotelId, user, role, loading: authLoading } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [legacyBookings, setLegacyBookings] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [guestName, setGuestName] = useState("");
   const [roomNumber, setRoomNumber] = useState("");
@@ -51,12 +54,7 @@ export default function Reservations() {
     const reservationsUnsub = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.RESERVATIONS),
       (snapshot) => {
-        setBookings(
-          snapshot.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Booking, "id">),
-          }))
-        );
+        setBookings(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })));
       },
       (err) => {
         console.error("Reservation listener failed", {
@@ -67,15 +65,25 @@ export default function Reservations() {
       }
     );
 
+    // Legacy booking records remain under accomodation. They are read only
+    // for compatibility/conflict detection; new reservations never write there.
+    const legacyUnsub = onSnapshot(
+      hotelCollection(hotelId, COLLECTIONS.BOOKINGS),
+      (snapshot) => {
+        setLegacyBookings(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })));
+      },
+      (err) => {
+        console.error("Legacy accommodation listener failed", {
+          code: err.code,
+          path: `hotels/${hotelId}/${COLLECTIONS.BOOKINGS}`,
+        });
+      }
+    );
+
     const roomsUnsub = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.ROOMS),
       (snapshot) => {
-        setRooms(
-          snapshot.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Room, "id">),
-          }))
-        );
+        setRooms(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Room, "id">) })));
       },
       (err) => {
         console.error("Room listener failed", {
@@ -87,6 +95,7 @@ export default function Reservations() {
 
     return () => {
       reservationsUnsub();
+      legacyUnsub();
       roomsUnsub();
     };
   }, [hotelId]);
@@ -95,6 +104,35 @@ export default function Reservations() {
     () => rooms.filter((r) => r.status !== "Maintenance" && r.status !== "Out of Service"),
     [rooms]
   );
+
+  const updateReservationStatus = async (booking: Booking, status: BookingStatus) => {
+    if (!hotelId || !booking.id || role !== "hotel_admin" && role !== "staff") return;
+    setError("");
+    try {
+      await updateDoc(hotelDoc(hotelId, COLLECTIONS.RESERVATIONS, booking.id), {
+        status,
+      });
+      console.info("Reservation updated", {
+        uid: user?.uid,
+        role,
+        hotelId,
+        path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}/${booking.id}`,
+        status,
+      });
+    } catch (e: any) {
+      const code = e?.code || "unknown";
+      console.error("Reservation update failed", {
+        code,
+        message: e?.message || String(e),
+        uid: user?.uid,
+        role,
+        hotelId,
+        path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}/${booking.id}`,
+        status,
+      });
+      setError(code === "permission-denied" ? "Firestore denied this reservation update." : e?.message || "Reservation could not be updated.");
+    }
+  };
 
   const createReservation = async () => {
     setError("");
@@ -121,14 +159,15 @@ export default function Reservations() {
       return setError(`Room ${room.number} is unavailable for reservations.`);
     }
 
-    const conflict = bookingOverlaps(roomNumber, start, end, bookings);
+    // Check both the new reservation collection and legacy accomodation
+    // records so migration does not introduce double bookings.
+    const conflict = bookingOverlaps(roomNumber, start, end, [...bookings, ...legacyBookings]);
     if (conflict) {
       return setError(`Room ${roomNumber} is already reserved for ${conflict.guestName || "another guest"}.`);
     }
 
     setSaving(true);
     try {
-      // Fail clearly when the authenticated profile points at a missing hotel.
       const hotelSnap = await getDoc(hotelDocRef(hotelId));
       if (!hotelSnap.exists()) {
         throw new Error(`Hotel ${hotelId} does not exist.`);
@@ -210,8 +249,21 @@ export default function Reservations() {
         <button className="btn btn-primary w-full" disabled={saving || authLoading} onClick={createReservation}>{saving ? "Saving…" : "Confirm reservation"}</button>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-100 p-4"><div><h2 className="font-semibold">Upcoming reservations</h2><p className="text-xs text-slate-500">Confirmed bookings currently blocking room inventory.</p></div><Search size={18} className="text-slate-400"/></div>
-        <div className="divide-y divide-slate-100">{bookings.filter(b => ACTIVE_BOOKING_STATUSES.includes(b.status as BookingStatus)).slice(0, 25).map(b => <div key={b.id} className="flex items-center justify-between gap-4 p-4"><div><p className="font-medium">{b.guestName || "Guest"}</p><p className="text-xs text-slate-500">Room {b.roomNumber || "—"} · {b.roomType || "—"}</p></div><div className="text-right"><p className="text-sm font-medium">{toPMSDate(b.checkIn)?.toLocaleDateString() || "—"} → {toPMSDate(b.checkOut)?.toLocaleDateString() || "—"}</p><span className="text-xs text-slate-500">{b.status}</span></div></div>)}{bookings.length === 0 && <p className="p-8 text-sm text-slate-500">No reservations yet.</p>}</div>
+        <div className="flex items-center justify-between border-b border-slate-100 p-4"><div><h2 className="font-semibold">Upcoming reservations</h2><p className="text-xs text-slate-500">Protected reservations currently blocking room inventory.</p></div><Search size={18} className="text-slate-400"/></div>
+        <div className="divide-y divide-slate-100">
+          {bookings.filter(b => ACTIVE_BOOKING_STATUSES.includes(b.status as BookingStatus)).slice(0, 25).map(b => (
+            <div key={b.id} className="flex items-center justify-between gap-4 p-4">
+              <div><p className="font-medium">{b.guestName || "Guest"}</p><p className="text-xs text-slate-500">Room {b.roomNumber || "—"} · {b.roomType || "—"}</p></div>
+              <div className="flex items-center gap-3">
+                <div className="text-right"><p className="text-sm font-medium">{toPMSDate(b.checkIn)?.toLocaleDateString() || "—"} → {toPMSDate(b.checkOut)?.toLocaleDateString() || "—"}</p><span className="text-xs text-slate-500">{b.status}</span></div>
+                {b.status === "Confirmed" && <button className="btn btn-secondary btn-sm" onClick={() => updateReservationStatus(b, "Checked In")}>Check in</button>}
+                {b.status === "Checked In" && <button className="btn btn-secondary btn-sm" onClick={() => updateReservationStatus(b, "Checked Out")}>Check out</button>}
+                {(b.status === "Confirmed" || b.status === "Checked In") && <button className="btn btn-secondary btn-sm" onClick={() => updateReservationStatus(b, "Cancelled")}>Cancel</button>}
+              </div>
+            </div>
+          ))}
+          {bookings.length === 0 && <p className="p-8 text-sm text-slate-500">No reservations yet.</p>}
+        </div>
       </div>
     </div>
   </section>;
