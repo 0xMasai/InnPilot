@@ -428,16 +428,16 @@ export default function AccommodationDashboard() {
     win.print();
   };
 
-  const resetBookingForm = () => {
-    setFormData({
-      guestName: "",
-      guestPhoneNumber: "",
-      roomType: "Single",
-      paymentStatus: "Paid",
-      notes: "",
-    });
-    setFormError("");
-  };
+  // const resetBookingForm = () => {
+  //   setFormData({
+  //     guestName: "",
+  //     guestPhoneNumber: "",
+  //     roomType: "Single",
+  //     paymentStatus: "Paid",
+  //     notes: "",
+  //   });
+  //   setFormError("");
+  // };
 
   return (
     <div className="space-y-6">
