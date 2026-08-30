@@ -6,7 +6,6 @@ import { hotelCollection } from "../../lib/hotelScope";
 import { useAuth } from "../../auth/AuthProvider";
 
 type Room = { id: string; number: string; type?: string; status: RoomStatus; price?: number };
-
 type Booking = { id: string; roomNumber?: string; guestName?: string; status?: string; checkOut?: any };
 
 const statusMeta: Record<RoomStatus, { label: string; icon: typeof BedDouble }> = {
@@ -31,7 +30,7 @@ export default function RoomBoard() {
       setRooms(next);
       setLoading(false);
     });
-    const bookingUnsub = onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (snap) => {
+    const bookingUnsub = onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESERVATIONS), (snap) => {
       setBookings(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })));
     });
     return () => { roomUnsub(); bookingUnsub(); };
