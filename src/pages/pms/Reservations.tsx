@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, getDoc, onSnapshot, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
+import { addDoc, getDoc, getDocsFromServer, onSnapshot, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { CalendarPlus, Search } from "lucide-react";
 import { COLLECTIONS, ACTIVE_BOOKING_STATUSES, type BookingStatus } from "../../lib/collections";
 import { hotelCollection, hotelDoc, hotelDocRef } from "../../lib/hotelScope";
@@ -49,15 +49,46 @@ export default function Reservations() {
   useEffect(() => {
     if (!hotelId) return;
 
+    const reservationsPath = `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}`;
+    const legacyPath = `hotels/${hotelId}/${COLLECTIONS.BOOKINGS}`;
+    const roomsPath = `hotels/${hotelId}/${COLLECTIONS.ROOMS}`;
+
+    console.info("[Firestore read:start]", {
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      uid: user?.uid,
+      role,
+      hotelId,
+      reservationsPath,
+      legacyPath,
+      roomsPath,
+    });
+
     const reservationsUnsub = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.RESERVATIONS),
+      { includeMetadataChanges: true },
       (snapshot) => {
-        setBookings(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })));
+        const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }));
+        console.info("[Firestore read:reservations]", {
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: reservationsPath,
+          source: snapshot.metadata.fromCache ? "cache" : "server",
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+          documentIds: docs.map((d) => d.id),
+          count: docs.length,
+        });
+        setBookings(docs);
       },
       (err) => {
         console.error("Reservation listener failed", {
           code: err.code,
-          path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}`,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: reservationsPath,
         });
         setError("Reservations could not be loaded. Check your hotel access.");
       }
@@ -67,36 +98,99 @@ export default function Reservations() {
     // for compatibility/conflict detection; new reservations never write there.
     const legacyUnsub = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.BOOKINGS),
+      { includeMetadataChanges: true },
       (snapshot) => {
-        setLegacyBookings(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })));
+        const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }));
+        console.info("[Firestore read:legacy-accommodation]", {
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: legacyPath,
+          source: snapshot.metadata.fromCache ? "cache" : "server",
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+          documentIds: docs.map((d) => d.id),
+          count: docs.length,
+        });
+        setLegacyBookings(docs);
       },
       (err) => {
         console.error("Legacy accommodation listener failed", {
           code: err.code,
-          path: `hotels/${hotelId}/${COLLECTIONS.BOOKINGS}`,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: legacyPath,
         });
       }
     );
 
     const roomsUnsub = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.ROOMS),
+      { includeMetadataChanges: true },
       (snapshot) => {
-        setRooms(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Room, "id">) })));
+        const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Room, "id">) }));
+        console.info("[Firestore read:rooms]", {
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: roomsPath,
+          source: snapshot.metadata.fromCache ? "cache" : "server",
+          hasPendingWrites: snapshot.metadata.hasPendingWrites,
+          documentIds: docs.map((d) => d.id),
+          count: docs.length,
+        });
+        setRooms(docs);
       },
       (err) => {
         console.error("Room listener failed", {
           code: err.code,
-          path: `hotels/${hotelId}/${COLLECTIONS.ROOMS}`,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          uid: user?.uid,
+          role,
+          hotelId,
+          path: roomsPath,
         });
       }
     );
+
+    // In development, make one explicit server read so we can distinguish
+    // a real Firestore result from any client-side snapshot/cache behaviour.
+    if (import.meta.env.DEV) {
+      getDocsFromServer(hotelCollection(hotelId, COLLECTIONS.RESERVATIONS))
+        .then((snapshot) => {
+          console.info("[Firestore server verification]", {
+            projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+            uid: user?.uid,
+            role,
+            hotelId,
+            path: reservationsPath,
+            source: "server",
+            documentIds: snapshot.docs.map((d) => d.id),
+            count: snapshot.size,
+          });
+        })
+        .catch((err) => {
+          console.error("[Firestore server verification failed]", {
+            code: err?.code,
+            message: err?.message,
+            projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+            uid: user?.uid,
+            role,
+            hotelId,
+            path: reservationsPath,
+          });
+        });
+    }
 
     return () => {
       reservationsUnsub();
       legacyUnsub();
       roomsUnsub();
     };
-  }, [hotelId]);
+  }, [hotelId, role, user?.uid]);
 
   const availableRooms = useMemo(
     () => rooms.filter((r) => r.status !== "Maintenance" && r.status !== "Out of Service"),
