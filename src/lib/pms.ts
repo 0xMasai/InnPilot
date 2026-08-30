@@ -24,7 +24,8 @@ export interface PMSRoomLike {
 export function toPMSDate(value: PMSBookingLike["checkIn"]): Date | null {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  if (typeof value === "object" && typeof value.toDate === "function") {
+  if (typeof value === "object") {
+    if (typeof value.toDate !== "function") return null;
     const date = value.toDate();
     return Number.isNaN(date.getTime()) ? null : date;
   }
