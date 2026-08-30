@@ -55,6 +55,15 @@ export default function OverviewDashboard() {
     expenses: [],
     rooms: [],
   });
+  // Bookings live in two places today: the legacy `accomodation` collection
+  // and the newer `reservations` collection written by the front-desk flow
+  // (see src/pages/pms/Reservations.tsx). Both document shapes are
+  // compatible with BookingRecord, so we read both and combine them below —
+  // otherwise occupancy/revenue here would silently miss any hotel that has
+  // moved to the newer flow.
+  const [reservationBookings, setReservationBookings] = useState<
+    MetricsInput["bookings"]
+  >([]);
   const [preset, setPreset] = useState<DatePreset>("today");
 
   // Shared operational data: the overview aggregates the whole hotel.
@@ -63,6 +72,9 @@ export default function OverviewDashboard() {
     const subs = [
       onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (snap) =>
         setData((p) => ({ ...p, bookings: snap.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESERVATIONS), (snap) =>
+        setReservationBookings(snap.docs.map((d) => d.data()))
       ),
       onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), (snap) =>
         setData((p) => ({ ...p, orders: snap.docs.map((d) => d.data()) }))
@@ -80,9 +92,19 @@ export default function OverviewDashboard() {
     return () => subs.forEach((u) => u());
   }, [hotelId]);
 
+  const combinedData = useMemo<MetricsInput>(
+    () => ({ ...data, bookings: [...data.bookings, ...reservationBookings] }),
+    [data, reservationBookings]
+  );
   const range = useMemo(() => getRange(preset), [preset]);
-  const metrics = useMemo(() => computeMetrics(data, range), [data, range]);
-  const trend = useMemo(() => dailySeries(data, range), [data, range]);
+  const metrics = useMemo(
+    () => computeMetrics(combinedData, range),
+    [combinedData, range]
+  );
+  const trend = useMemo(
+    () => dailySeries(combinedData, range),
+    [combinedData, range]
+  );
 
   const departmentData = [
     { name: "Accommodation", revenue: metrics.accommodationRevenue },

@@ -75,6 +75,15 @@ export default function ReportsDashboard() {
     expenses: [],
     rooms: [],
   });
+  // Bookings live in two places today: the legacy `accomodation` collection
+  // and the newer `reservations` collection written by the front-desk flow
+  // (see src/pages/pms/Reservations.tsx). Both document shapes are
+  // compatible with BookingRecord, so we read both and combine them below —
+  // otherwise reports here would silently miss any hotel that has moved to
+  // the newer flow.
+  const [reservationBookings, setReservationBookings] = useState<
+    MetricsInput["bookings"]
+  >([]);
   const [report, setReport] = useState<ReportKey>("financial");
   const [preset, setPreset] = useState<DatePreset | "custom">("month");
   const [customStart, setCustomStart] = useState("");
@@ -85,6 +94,9 @@ export default function ReportsDashboard() {
     const subs = [
       onSnapshot(hotelCollection(hotelId, COLLECTIONS.BOOKINGS), (s) =>
         setData((p) => ({ ...p, bookings: s.docs.map((d) => d.data()) }))
+      ),
+      onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESERVATIONS), (s) =>
+        setReservationBookings(s.docs.map((d) => d.data()))
       ),
       onSnapshot(hotelCollection(hotelId, COLLECTIONS.RESTAURANT), (s) =>
         setData((p) => ({ ...p, orders: s.docs.map((d) => d.data()) }))
@@ -102,6 +114,11 @@ export default function ReportsDashboard() {
     return () => subs.forEach((u) => u());
   }, [hotelId]);
 
+  const combinedData = useMemo<MetricsInput>(
+    () => ({ ...data, bookings: [...data.bookings, ...reservationBookings] }),
+    [data, reservationBookings]
+  );
+
   const range: DateRange = useMemo(() => {
     if (preset === "custom" && customStart && customEnd) {
       const s = new Date(customStart);
@@ -111,7 +128,10 @@ export default function ReportsDashboard() {
     return getRange(preset === "custom" ? "month" : preset);
   }, [preset, customStart, customEnd]);
 
-  const metrics = useMemo(() => computeMetrics(data, range), [data, range]);
+  const metrics = useMemo(
+    () => computeMetrics(combinedData, range),
+    [combinedData, range]
+  );
 
   const built: BuiltReport = useMemo(() => {
     switch (report) {
@@ -148,7 +168,7 @@ export default function ReportsDashboard() {
         };
       }
       case "bookings": {
-        const rows = data.bookings
+        const rows = combinedData.bookings
           .filter((b) => inRange(bookingDate(b), range))
           .sort((a, b) => (bookingDate(a)?.getTime() ?? 0) - (bookingDate(b)?.getTime() ?? 0))
           .map((b: any) => [
@@ -251,7 +271,7 @@ export default function ReportsDashboard() {
         };
       }
     }
-  }, [report, data, range, metrics]);
+  }, [report, data, combinedData, range, metrics]);
 
   const fileStem = `${built.title.replace(/\s+/g, "-").toLowerCase()}-${range.label.replace(/[\s/–]+/g, "-").toLowerCase()}`;
 
