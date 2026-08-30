@@ -26,6 +26,7 @@ export interface AuditEntry {
   userId: string;
   userEmail: string;
   at: unknown; // Firestore server timestamp
+  hotelId: string;
 }
 
 export function logAction(
@@ -35,17 +36,20 @@ export function logAction(
   entityId?: string | null,
   details?: string
 ): void {
-  if (!hotelId) {
-    console.error("Audit log write skipped: no hotel context");
+  const user = auth.currentUser;
+  if (!hotelId || !user) {
+    console.error("Audit log write skipped: missing hotel or authenticated user");
     return;
   }
+
   addDoc(hotelCollection(hotelId, COLLECTIONS.AUDIT), {
     action,
     entity,
     entityId: entityId ?? null,
     details: details ?? "",
-    userId: auth.currentUser?.uid ?? "unknown",
-    userEmail: auth.currentUser?.email ?? "",
+    userId: user.uid,
+    userEmail: user.email ?? "",
+    hotelId,
     at: serverTimestamp(),
   }).catch((err) => console.error("Audit log write failed:", err));
 }
