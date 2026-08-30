@@ -276,9 +276,9 @@ const LandingPage = () => {
             <Link to="/login" className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition">
               Sign In
             </Link>
-            <a href="#pricing" className="btn btn-primary text-sm px-4 py-2">
+            <Link to="/book-demo" className="btn btn-primary text-sm px-4 py-2">
               Book a Demo
-            </a>
+            </Link>
           </div>
         </div>
       </nav>
@@ -307,9 +307,9 @@ const LandingPage = () => {
               and small hotel groups rather than enterprise chains.
             </p>
             <div className="flex flex-wrap gap-3">
-              <a href="#pricing" className="btn btn-primary px-6 py-3 text-sm inline-flex items-center gap-2">
+              <Link to="/book-demo" className="btn btn-primary px-6 py-3 text-sm inline-flex items-center gap-2">
                 Book a Demo <ArrowRight size={16} />
-              </a>
+              </Link>
               <Link
                 to="/login"
                 className="px-6 py-3 text-sm font-semibold rounded-lg border border-white/15 text-white hover:bg-white/5 transition"
@@ -435,12 +435,12 @@ const LandingPage = () => {
                 ))}
               </ul>
               <div className="flex flex-col gap-2.5">
-                <a
-                  href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Book a demo — InnPilot")}`}
+                <Link
+                  to="/book-demo"
                   className="btn btn-primary w-full py-3 text-sm inline-flex items-center justify-center gap-2"
                 >
                   Book a Demo <ArrowRight size={16} />
-                </a>
+                </Link>
                 <a
                   href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Contact sales — InnPilot")}`}
                   className="w-full py-3 text-sm font-semibold rounded-lg border border-white/15 text-white hover:bg-white/5 transition"
@@ -476,9 +476,9 @@ const LandingPage = () => {
             <p className="text-[var(--rail-text)] mb-8 max-w-xl mx-auto">
               Start running your property with InnPilot.
             </p>
-            <a href="#pricing" className="btn btn-primary px-8 py-3 text-sm inline-flex items-center gap-2">
+            <Link to="/book-demo" className="btn btn-primary px-8 py-3 text-sm inline-flex items-center gap-2">
               Book a Demo <ArrowRight size={16} />
-            </a>
+            </Link>
           </motion.div>
         </div>
       </section>
