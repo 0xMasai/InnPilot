@@ -33,8 +33,6 @@ const makeReservationId = () => {
   return `RSV-${stamp}-${suffix}`;
 };
 
-const reservationStatuses: BookingStatus[] = ["Confirmed", "Checked In", "Checked Out", "Cancelled", "No Show"];
-
 export default function Reservations() {
   const { hotelId, user, role, loading: authLoading } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -106,12 +104,10 @@ export default function Reservations() {
   );
 
   const updateReservationStatus = async (booking: Booking, status: BookingStatus) => {
-    if (!hotelId || !booking.id || role !== "hotel_admin" && role !== "staff") return;
+    if (!hotelId || !booking.id || (role !== "hotel_admin" && role !== "staff")) return;
     setError("");
     try {
-      await updateDoc(hotelDoc(hotelId, COLLECTIONS.RESERVATIONS, booking.id), {
-        status,
-      });
+      await updateDoc(hotelDoc(hotelId, COLLECTIONS.RESERVATIONS, booking.id), { status });
       console.info("Reservation updated", {
         uid: user?.uid,
         role,
