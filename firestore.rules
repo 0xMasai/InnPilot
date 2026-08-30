@@ -1,17 +1,56 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function role() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'pending'); }
-    function hotel() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('hotelId', null); }
-    function superAdmin() { return signedIn() && role() == 'super_admin'; }
-    function hotelAdmin(hotelId) { return signedIn() && role() == 'hotel_admin' && hotel() == hotelId; }
-    function hotelStaff(hotelId) { return signedIn() && role() in ['hotel_admin', 'staff'] && hotel() == hotelId; }
-    function own() { return request.resource.data.get('userId', null) == request.auth.uid; }
-    function fieldsOk() { return request.resource.data.size() <= 50; }
-    function roomStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Available','Occupied','Cleaning','Maintenance','Out of Service']; }
-    function bookingStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Confirmed','Checked In','Checked Out','Cancelled','No Show']; }
-    function orderStatusOk() { return !('status' in request.resource.data) || request.resource.data.status in ['Open','Served','Paid','Cancelled']; }
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'pending');
+    }
+
+    function hotel() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('hotelId', null);
+    }
+
+    function superAdmin() {
+      return signedIn() && role() == 'super_admin';
+    }
+
+    function hotelAdmin(hotelId) {
+      return signedIn() && role() == 'hotel_admin' && hotel() == hotelId;
+    }
+
+    function hotelStaff(hotelId) {
+      return signedIn() && role() in ['hotel_admin', 'staff'] && hotel() == hotelId;
+    }
+
+    function own() {
+      return request.resource.data.get('userId', null) == request.auth.uid;
+    }
+
+    // If an operational document carries hotelId, it must agree with the
+    // tenant encoded in the Firestore path. Legacy documents may omit it.
+    function tenantFieldOk(hotelId) {
+      return !('hotelId' in request.resource.data) || request.resource.data.hotelId == hotelId;
+    }
+
+    function fieldsOk() {
+      return request.resource.data.size() <= 50;
+    }
+
+    function roomStatusOk() {
+      return !('status' in request.resource.data) || request.resource.data.status in ['Available','Occupied','Cleaning','Maintenance','Out of Service'];
+    }
+
+    function bookingStatusOk() {
+      return !('status' in request.resource.data) || request.resource.data.status in ['Confirmed','Checked In','Checked Out','Cancelled','No Show'];
+    }
+
+    function orderStatusOk() {
+      return !('status' in request.resource.data) || request.resource.data.status in ['Open','Served','Paid','Cancelled'];
+    }
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || superAdmin() || (role() == 'hotel_admin' && resource.data.get('hotelId', null) == hotel()));
@@ -27,82 +66,97 @@ service cloud.firestore {
 
       match /rooms/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && roomStatusOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk() && roomStatusOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId) && roomStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId) && roomStatusOk();
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /accomodation/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && bookingStatusOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk() && bookingStatusOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId) && bookingStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId) && bookingStatusOk();
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /reservations/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && bookingStatusOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk() && bookingStatusOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId) && bookingStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId) && bookingStatusOk();
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /folioItems/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /payments/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /housekeepingTasks/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /maintenanceRequests/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /nightAudits/{docId} {
         allow read: if hotelAdmin(hotelId);
-        allow create: if hotelAdmin(hotelId) && own() && fieldsOk();
+        allow create: if hotelAdmin(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
         allow update: if false;
         allow delete: if false;
       }
+
       match /restaurant/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && orderStatusOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk() && orderStatusOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId) && orderStatusOk();
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId) && orderStatusOk();
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /conferenceRooms/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /conferenceSpaces/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /expenses/{docId} {
         allow read: if hotelStaff(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
-        allow update: if hotelStaff(hotelId) && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
+        allow update: if hotelStaff(hotelId) && fieldsOk() && tenantFieldOk(hotelId);
         allow delete: if hotelAdmin(hotelId);
       }
+
       match /auditLog/{docId} {
         allow read: if hotelAdmin(hotelId);
-        allow create: if hotelStaff(hotelId) && own() && fieldsOk();
+        allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
         allow update, delete: if false;
       }
     }
-    match /{document=**} { allow read, write: if false; }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
