@@ -1,0 +1,76 @@
+/**
+ * Shared types for the InnPilot AI agent backend.
+ *
+ * `Role` is intentionally duplicated from `src/types/models.ts` rather than
+ * imported: this package builds and deploys independently of the frontend.
+ * Keep the two in sync — they also both need to agree with the
+ * role()/hotel() logic in `firestore.rules`.
+ */
+
+export type Role = "super_admin" | "hotel_admin" | "staff" | "pending";
+
+/**
+ * Server-derived identity + authorization context for a single AI request.
+ *
+ * This is built once per request by the Context Manager from the verified
+ * `context.auth.uid` of a Firebase callable function — never from anything
+ * the client (or the model) supplies. Every tool handler receives this and
+ * must use it, not any hotelId/role a caller or the model might mention in
+ * a message.
+ */
+export interface ToolContext {
+  userId: string;
+  userEmail: string | null;
+  role: Role;
+  /** null only for super_admin. */
+  hotelId: string | null;
+  conversationId: string;
+}
+
+/** A single tool's declared contract. Registered in the Tool Registry. */
+export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
+  name: string;
+  description: string;
+  /** Roles allowed to invoke this tool. Checked by the Permission Guard. */
+  allowedRoles: Role[];
+  /** True for tools that change data — gated by the Confirmation Manager. */
+  isWrite: boolean;
+  validateInput: (raw: unknown) => TInput;
+  handler: (ctx: ToolContext, input: TInput) => Promise<TOutput>;
+}
+
+export interface ToolCallRecord {
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  status: "ok" | "error" | "confirmation_required" | "denied";
+  errorMessage?: string;
+  durationMs: number;
+}
+
+/** Structured result returned by the Gateway to the client. */
+export interface AgentResponse {
+  conversationId: string;
+  reply: string;
+  toolCalls: ToolCallRecord[];
+  /** Set when a write tool needs the user to confirm before executing. */
+  pendingConfirmation?: {
+    confirmationId: string;
+    toolName: string;
+    summary: string;
+  };
+}
+
+export class ToolAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolAuthorizationError";
+  }
+}
+
+export class ToolValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolValidationError";
+  }
+}

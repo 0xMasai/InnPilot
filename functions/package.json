@@ -1,0 +1,29 @@
+{
+  "name": "innpilot-ai-functions",
+  "private": true,
+  "description": "InnPilot AI Agent backend (Cloud Functions). Scope: AI gateway, tool execution, permission guard, confirmation, conversation, and audit — nothing else. See ../docs/ai/.",
+  "version": "0.1.0",
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "eslint": "^9.36.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.45.0",
+    "vitest": "^4.1.11"
+  }
+}
