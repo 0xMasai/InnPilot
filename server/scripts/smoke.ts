@@ -1,7 +1,7 @@
 /**
- * Phase 3 smoke test — answers "is this deployment actually wired up?"
+ * AI gateway smoke test — answers "is this deployment actually wired up?"
  *
- *   npm run build && npm run smoke
+ *   npm run smoke
  *
  * Reads configuration from the environment exactly as the gateway does,
  * then checks the two things that can only be verified with real
@@ -12,17 +12,17 @@
  *   2. The configured AI provider answers, and honours the "no data access
  *      yet" instruction rather than inventing an occupancy figure.
  *
- * Locally: node --env-file=.env scripts/smoke.js (which `npm run smoke`
- * does). On a deployed host, run it with that host's environment.
+ * Locally it reads .env (git-ignored). To check a deployed environment,
+ * run it with that environment's variables exported.
  *
  * Prints no credential values.
  */
-const { db, adminApp } = require("../lib/admin");
-const {
+import { adminApp, db } from "../admin";
+import {
   getProvider,
-  resolveProviderConfig,
   isProviderConfigured,
-} = require("../lib/ai/provider");
+  resolveProviderConfig,
+} from "../ai/provider";
 
 const QUESTION = "What is our occupancy today?";
 const NO_DATA_SYSTEM_PROMPT =
@@ -31,7 +31,7 @@ const NO_DATA_SYSTEM_PROMPT =
   "state, estimate, or guess any operational or financial figure; say " +
   "plainly that data access is not connected yet.";
 
-async function checkFirestore() {
+async function checkFirestore(): Promise<void> {
   console.log("\n[1/2] Firebase Admin");
   const credentialSource = process.env.FIREBASE_SERVICE_ACCOUNT
     ? "FIREBASE_SERVICE_ACCOUNT"
@@ -45,7 +45,7 @@ async function checkFirestore() {
   );
 }
 
-async function checkProvider() {
+async function checkProvider(): Promise<void> {
   console.log("\n[2/2] AI provider");
 
   if (!isProviderConfigured()) {
@@ -78,13 +78,15 @@ async function checkProvider() {
   );
 }
 
-(async () => {
-  console.log("InnPilot AI — Phase 3 smoke test");
+try {
+  console.log("InnPilot AI — gateway smoke test");
   await checkFirestore();
   await checkProvider();
   console.log("\nAll checks passed.");
-})().catch((err) => {
+} catch (err) {
   // Error messages here can carry request detail; print the shape, not a payload.
-  console.error(`\nFAILED: ${err.name}${err.status ? ` (${err.status})` : ""} — ${err.message}`);
+  const status = (err as { status?: number }).status;
+  const { name, message } = err as Error;
+  console.error(`\nFAILED: ${name}${status ? ` (${status})` : ""} — ${message}`);
   process.exitCode = 1;
-});
+}

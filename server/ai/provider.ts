@@ -20,7 +20,6 @@
  * is host-agnostic and testable with a plain object.
  */
 
-import { createAnthropicProvider } from "./providers/anthropic";
 import { createOpenAIProvider } from "./providers/openai";
 
 /** Message roles this layer exchanges with a provider. */
@@ -121,7 +120,6 @@ export type ProviderFactory = (config: ProviderConfig) => AIProvider;
 /** Per-provider defaults, so `AI_MODEL` is optional in every environment. */
 const DEFAULT_MODELS: Record<string, string> = {
   openai: "gpt-5.6",
-  anthropic: "claude-opus-5",
 };
 
 const DEFAULT_PROVIDER = "openai";
@@ -187,13 +185,15 @@ export function resolveProviderConfig(env: Env = process.env): ProviderConfig {
 }
 
 /**
- * Provider implementations, by `AI_PROVIDER` value. Adding a second
- * provider means adding one file under `providers/` and one entry here —
- * no caller changes.
+ * Provider implementations, by `AI_PROVIDER` value. Adding another means
+ * adding one file under `providers/` plus one entry here and in
+ * DEFAULT_MODELS — no caller changes. (An Anthropic implementation lived
+ * here until this package merged with the frontend's: a second SDK is
+ * statically imported into every install and every function bundle, so it
+ * was dropped rather than carried unused. See git history for the shape.)
  */
 const FACTORIES: Record<string, ProviderFactory> = {
   openai: (config) => createOpenAIProvider(config),
-  anthropic: (config) => createAnthropicProvider(config),
 };
 
 let cached: { key: string; provider: AIProvider } | null = null;

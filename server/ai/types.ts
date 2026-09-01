@@ -39,6 +39,19 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   handler: (ctx: ToolContext, input: TInput) => Promise<TOutput>;
 }
 
+/**
+ * A tool of unspecified shape, as the registry must store them.
+ *
+ * The registry is heterogeneous — every tool has its own input type — and
+ * TypeScript has no existential type to say "some ToolDefinition". `any`
+ * is the standard workaround here; `unknown` would make every concrete
+ * tool unassignable, since `handler`'s input parameter is contravariant.
+ * No input safety is lost by it: `validateInput` is what actually guards a
+ * handler, and the Permission Guard checks the tool itself.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type RegisteredTool = ToolDefinition<any, any>;
+
 export interface ToolCallRecord {
   toolName: string;
   input: unknown;

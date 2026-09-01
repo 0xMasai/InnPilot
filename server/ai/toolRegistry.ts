@@ -7,21 +7,21 @@
  * ad hoc, so every tool is guaranteed to have gone through
  * `assertCanCallTool` first.
  */
-import type { ToolDefinition } from "./types";
+import type { RegisteredTool } from "./types";
 
-const registry = new Map<string, ToolDefinition<any, any>>();
+const registry = new Map<string, RegisteredTool>();
 
-export function registerTool(tool: ToolDefinition<any, any>): void {
+export function registerTool(tool: RegisteredTool): void {
   if (registry.has(tool.name)) {
     throw new Error(`Tool '${tool.name}' is already registered.`);
   }
   registry.set(tool.name, tool);
 }
 
-export function getTool(name: string): ToolDefinition<any, any> | undefined {
+export function getTool(name: string): RegisteredTool | undefined {
   return registry.get(name);
 }
 
-export function listTools(): ToolDefinition<any, any>[] {
+export function listTools(): RegisteredTool[] {
   return Array.from(registry.values());
 }

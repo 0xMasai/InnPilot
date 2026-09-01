@@ -23,11 +23,11 @@ import type {
 import { ProviderRequestError } from "../provider";
 
 /**
- * Cap a single call well inside the host's own request timeout so a slow
- * upstream surfaces as our error rather than an opaque platform timeout.
- * The SDK default is 10 minutes.
+ * Cap a single call inside the host's request budget (Vercel's
+ * `maxDuration` is 60s in vercel.json) so a slow upstream surfaces as our
+ * error rather than an opaque platform timeout. SDK default: 10 minutes.
  */
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_RETRIES = 1;
 
 function parseToolArguments(raw: string, toolName: string): unknown {

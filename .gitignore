@@ -13,8 +13,8 @@ dist-electron
 dist-ssr
 *.local
 
-# Cloud Functions build output (functions/package.json "build" script)
-functions/lib
+# Vercel local build/dev output
+.vercel
 
 # Editor directories and files
 .vscode/*

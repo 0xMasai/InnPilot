@@ -1,22 +1,26 @@
 # Phase 3 — AI Provider Abstraction
 
-Phase 2's infrastructure is in place and unchanged in shape; this phase
-gives it an LLM, behind an interface, driven entirely by environment
-variables. No secrets, model ids, or endpoints are hard-coded anywhere.
+Phase 2's module structure is intact; this phase gives it an LLM behind an
+interface, driven entirely by environment variables, and moves the gateway
+onto a host that can actually run it. No secrets, model ids, or endpoints
+are hard-coded anywhere.
 
 ## What exists now
 
 ```
-functions/src/ai/
-  provider.ts              # AIProvider interface, config resolution, factory
-  providers/
-    openai.ts              # the configured default (Responses API)
-    anthropic.ts           # second implementation, proves the seam
-  orchestrator.ts          # now calls the provider; still no tools
-  gateway.ts               # Firebase callable adapter (see hosting note below)
-  ../admin.ts              # credentials that work off Google infrastructure
-functions/.env.example     # documents every AI_* and credential variable
-functions/scripts/smoke.js # `npm run smoke` — verifies credentials end to end
+server/                      # was functions/src — see "Hosting" below
+  admin.ts                   # Admin SDK app; credentials that work off Google infra
+  ai/
+    aiChat.ts                # gateway core: verify ID token -> context -> guard -> turn
+    provider.ts              # AIProvider interface, config resolution, factory
+    providers/openai.ts      # the one implementation (Responses API)
+    orchestrator.ts          # calls the provider; still no tools
+    contextManager.ts, permissionGuard.ts, toolRegistry.ts,
+    confirmationManager.ts, conversationManager.ts, auditLogger.ts
+  scripts/smoke.ts           # `npm run smoke` — verifies credentials end to end
+api/ai-chat.ts               # Vercel adapter: method, CORS, bearer token, status codes
+vercel.json                  # maxDuration for the AI function
+.env.example                 # every variable, public and secret, in one place
 ```
 
 ### The interface
@@ -37,159 +41,159 @@ orchestrator now. It is never persisted or shown to a user.
 
 | Variable | Required | Default | Where it lives |
 |---|---|---|---|
-| `AI_PROVIDER` | no | `openai` | host env |
-| `AI_MODEL` | no | provider default (`gpt-5.6`) | host env |
-| `AI_MAX_TOKENS` | no | `4096` | host env |
-| `AI_EFFORT` | no | `medium` | host env |
-| `AI_API_KEY` | **yes** | — | host **secret** store |
-| `FIREBASE_SERVICE_ACCOUNT` | off Google infra | ADC | host **secret** store |
+| `AI_PROVIDER` | no | `openai` | Vercel env |
+| `AI_MODEL` | no | `gpt-5.6` | Vercel env |
+| `AI_MAX_TOKENS` | no | `4096` | Vercel env |
+| `AI_EFFORT` | no | `medium` | Vercel env |
+| `AI_API_KEY` | **yes** | — | Vercel env (secret) |
+| `FIREBASE_SERVICE_ACCOUNT` | **yes** on Vercel | ADC | Vercel env (secret) |
+| `ALLOWED_ORIGINS` | only cross-origin | same-origin only | Vercel env |
 
 Bad values fail loudly at resolution (unknown provider, non-integer token
 cap, unknown effort) rather than silently falling back to a default.
 
+## Hosting: the gateway left Cloud Functions
+
+The project stays on the Spark plan, and Cloud Functions cannot deploy
+without Blaze, so the `aiChat` callable had no runtime. It now runs on
+Vercel, authenticating to Firestore with the
+`firebase-adminsdk-fbsvc@hotel-management-c183c` service account.
+
+That decision collapsed the `functions/` package into the root one:
+
+- `functions/src/*` -> `server/*`. Same modules, same names, one file
+  renamed (`gateway.ts` -> `ai/aiChat.ts`) because it is no longer a
+  Firebase callable.
+- `functions/package.json`, its lockfile, and its tsconfig are gone.
+  Vercel builds from the root package, so a second package would mean a
+  second install the deployment never uses. `firebase-admin` moved from the
+  root's devDependencies to dependencies (the function needs it at runtime)
+  and `openai` joined it; `tsconfig.server.json` typechecks `server/` and
+  `api/` as part of `tsc -b`.
+- `firebase.json` no longer declares a functions codebase or emulator. The
+  Firestore and Storage rules, and the Firestore emulator the rules tests
+  use, are untouched.
+
+`api/ai-chat.ts` holds every HTTP concern and nothing else; `server/` has
+no idea it is behind Vercel. Moving hosts again means rewriting that one
+file.
+
+### What the callable did for free, and now doesn't
+
+- **ID-token verification.** `aiChat.ts` now calls
+  `getAuth().verifyIdToken()` explicitly. Bad, expired, revoked, and
+  wrong-project tokens all return the same 401 with no distinguishing
+  detail.
+- **CORS.** Handled in the adapter from `ALLOWED_ORIGINS`. Unset grants
+  nothing rather than defaulting to `*` — a wildcard would let any site
+  spend this deployment's API budget with a stolen ID token. Same-origin
+  (app and API on one Vercel project) needs no value at all.
+- **Timeouts.** `vercel.json` sets `maxDuration: 60`; the provider caps a
+  call at 45s, so a slow model surfaces as our own honest error rather than
+  a platform timeout.
+
 ## Decisions made while implementing (flagging, not asking permission for)
 
-- **`.env.example` lives at `functions/.env.example`, not the repo root.**
-  Phase 1's plan named a root `.env.example`, with the reasoning that these
-  are server-side Cloud Functions values and must not carry the `VITE_`
-  prefix. `functions/` is where that is literally true: Firebase loads
-  `functions/.env` for the deployed function, and a root `.env.example`
-  listing `AI_*` alongside the app's `VITE_*` values would invite someone to
-  paste an API key into the Vite env — the exact failure Phase 1 was
-  guarding against. Root `.gitignore` already ignores `.env` at any depth
-  and `*.local`, so `functions/.env` and `functions/.env.local` are covered
-  without a change.
-- **`AI_API_KEY` is read from `process.env` only.** `gateway.ts` still
-  binds it as a Firebase secret (`defineSecret`) for the Cloud Functions
-  adapter, but `provider.ts` imports nothing from `firebase-functions`, so
-  the same provider code runs unchanged on whichever host the gateway moves
-  to, and is testable with a plain env object (Phase 15).
-- **Provider chosen: OpenAI (`openai`, Responses API), default model
-  `gpt-5.6`** — your call, and the default the abstraction now ships with.
-  Anthropic stays registered as a second implementation: it costs one entry
-  in the factory map, and it is the evidence that the seam is real rather
-  than theoretical. Switching is one env var, no code change.
+- **Provider: OpenAI (`openai`, Responses API), default model `gpt-5.6`** —
+  your call. `AI_MODEL` swaps it per environment (`gpt-5.6-terra` and
+  `-luna` are the cheaper drop-ins) with no code change.
 - **`store: false` on every OpenAI request.** Hotel operational data is not
   retained provider-side; conversation history stays in Firestore, where
   the rest of the app's data already lives.
-- **Firebase Admin now accepts a service-account credential from
+- **The Anthropic implementation was removed** when the package merged with
+  the frontend's. It is statically imported, so an unused second SDK would
+  land in every `npm install` for the web app and in the function bundle.
+  The abstraction is unchanged — adding a provider is one file plus one
+  entry in `FACTORIES` and `DEFAULT_MODELS` — and git history holds the
+  reference implementation.
+- **Firebase Admin accepts a service-account credential from
   `FIREBASE_SERVICE_ACCOUNT`** (raw JSON or base64), falling back to
-  Application Default Credentials when it is absent. Required because a
-  non-Google host has no metadata server to authenticate against. This
-  amends Phase 2's `admin.ts`; flagging it as an amendment rather than
-  silently reopening a closed phase.
-- **Adaptive thinking + `effort` are on by default** (`AI_EFFORT=medium`),
-  because V1's harder questions ("why is revenue lower this week?") are
-  analysis over multiple tool results, not lookups. Deployments that want
-  cheaper/faster turns set `AI_EFFORT=low`.
-- **Server-side refusal fallback is enabled** (`fallbacks: "default"`), so a
-  policy refusal is retried on a fallback model inside the same call rather
-  than returning nothing. `"default"` means no second model id to maintain.
-- **Callable timeout raised to 120s, provider request capped at 60s** with
-  one retry, so a slow model surfaces as our own error message instead of an
-  opaque function timeout.
-- **Orchestrator is now live but still tool-less.** It sends the last 20
+  Application Default Credentials. Vercel has no Google metadata server, so
+  the env var is the deployed path; the ADC fallback keeps local runs and
+  any future Google host working.
+- **`.env.example` is at the repo root**, now that root is the only
+  package. It documents the `VITE_*` split explicitly, because that prefix
+  is the line between "bundled into public browser JS" and "server-side
+  only" — and an API key on the wrong side of it is the failure this whole
+  arrangement exists to prevent.
+- **Orchestrator is live but still tool-less.** It sends the last 20
   messages of history plus a placeholder system prompt (Phase 7 replaces
-  it). Because no tools are registered yet, that prompt explicitly forbids
-  stating or estimating any operational, financial, reservation, or guest
-  figure and requires the model to say data access isn't connected — the
-  brief's "never fabricate data" rule applied to "no tools yet".
-- **Every failure path degrades honestly, not silently.** Unconfigured
-  provider, misconfiguration, upstream failure, and refusal each return a
-  distinct plain-English reply saying no answer is available; none of them
-  invents one. Details go to `console.error` (structured logging is
-  Phase 13).
+  it). With no tools registered, that prompt forbids stating or estimating
+  any operational, financial, reservation, or guest figure and requires the
+  model to say data access isn't connected — the brief's "never fabricate
+  data" rule applied to "no tools yet".
+- **Every failure path degrades honestly.** Unconfigured provider,
+  misconfiguration, upstream failure, and refusal each return a distinct
+  plain-English reply saying no answer is available; none invents one.
+  Details go to `console.error` (structured logging is Phase 13).
 - **`ProviderRequestError` does not carry the SDK's error message text**,
-  only its type and HTTP status, so a provider error can't echo request
-  content (which will contain hotel data from Phase 4 onward) back to the
-  client.
+  only its type and HTTP status, so a provider error cannot echo request
+  content (which will carry hotel data from Phase 4 onward) to the client.
+  The adapter's catch-all does the same: 500 with a fixed string.
 
 ## Validation
 
-- `functions`: `npx tsc --noEmit` clean; `npm run build` produces
-  `lib/ai/provider.js` plus `lib/ai/providers/{openai,anthropic}.js`.
-- Config resolution exercised against the built output: defaults resolve to
-  openai/gpt-5.6, `AI_PROVIDER=anthropic` switches implementation,
-  `AI_MODEL` overrides the model, plus memoization, cache rebuild on a
-  rotated key, and rejection of an unsupported provider, a negative token
-  cap, and an unknown effort value.
-- Admin credential resolution exercised both ways with a locally generated
-  key: raw-JSON and base64 `FIREBASE_SERVICE_ACCOUNT` both initialize
-  against project `hotel-management-c183c`; a malformed value is rejected
-  with a message that does not echo the key.
-- `npm run lint` in `functions/` still cannot run: there is no
-  `functions/eslint.config.js`, so ESLint falls back to the root config,
-  whose plugins are not installed for this package. Pre-existing from
-  Phase 2, not introduced here; worth fixing when the package gets its own
-  test/lint setup in Phase 15.
-- Root app: untouched. No file outside `functions/` and `docs/ai/` changed.
-
-### Live checks with real credentials
-
-- **Firebase Admin works against the real project.** Using the
-  `firebase-adminsdk-fbsvc@hotel-management-c183c` service account, a
-  read-only query reached Firestore: `users` and `hotels` are both
-  readable, roles come back as the Context Manager expects
-  (`super_admin` with no hotel, `staff` with a hotelId), and the project
-  currently holds one hotel. Nothing was written.
-- **The OpenAI call could not be made from the development sandbox.** Its
-  egress proxy refuses `CONNECT api.openai.com` with a 403 — confirmed with
-  a dummy token, so it is a network restriction, not a credential problem.
-  The key is therefore *unverified*: run `npm run smoke` from a machine with
-  open egress to confirm it.
-- That block did exercise a failure path for free: the provider mapped the
-  403 to `ProviderRequestError(403)` without leaking request content, which
-  is exactly what the orchestrator turns into "I couldn't reach the AI
-  service just now" rather than a fabricated answer.
+- `npx tsc -b` clean across all four projects (app, node, server, api).
+- `npm run build` (typecheck + Vite) succeeds; the frontend is unaffected.
+- `npx firebase emulators:exec --only firestore "npx vitest run tests/rules"`
+  — **48/48 pass**, confirming the trimmed `firebase.json` still drives the
+  emulator the existing rules tests depend on.
+- **Firebase Admin verified against the real project.** A read-only query
+  with the service account reached Firestore: `users` and `hotels` readable,
+  roles as the Context Manager expects (`super_admin` with no hotel, `staff`
+  with a hotelId), one hotel present. Nothing was written.
+- **The OpenAI call is still unverified.** The development sandbox's egress
+  proxy refuses `CONNECT api.openai.com` with a 403 — confirmed with a dummy
+  token, so it is the network, not the credential. `npm run smoke` reaches
+  the provider step and reports that 403 cleanly; run it from a machine with
+  open egress to confirm the key.
+- That block did test a failure path for free: the 403 became
+  `ProviderRequestError(403)` with no request content leaked, which is what
+  the orchestrator turns into "I could not reach the AI service just now".
+- `npm run lint` (root ESLint) now covers `server/` and `api/` as ordinary
+  TypeScript; the old unrunnable `functions/` lint script is gone with the
+  package.
 
 ### Credentials in this working copy
 
-`functions/.env` (provider config + `AI_API_KEY`) and
-`functions/serviceAccountKey.json` exist locally and are **git-ignored** —
-confirmed with `git check-ignore`; neither has ever been staged. They are
-for local runs only. On the deployed host, the same values go in that
-host's secret store, with the service account passed as
-`FIREBASE_SERVICE_ACCOUNT` (one-line JSON or base64) rather than a file.
+`.env` (provider config + `AI_API_KEY`) and `serviceAccountKey.json` exist
+locally and are **git-ignored** — confirmed with `git check-ignore`; neither
+has been staged. On Vercel the same values go in the project's Environment
+Variables, with the service account as `FIREBASE_SERVICE_ACCOUNT`.
 
 **Both credentials were shared over chat and should be rotated** once the
 gateway is deployed and working: a new key in the OpenAI dashboard, and a
 new service-account key in the Firebase console (which lets you delete the
 old one outright).
 
-## Hosting: the gateway is leaving Cloud Functions
+## Deploying
 
-The project stays on the Spark plan, and Cloud Functions cannot deploy
-without Blaze — so the `aiChat` callable in `gateway.ts` has no runtime.
-Decision taken: the gateway moves to a generic serverless host, keeping the
-Admin SDK and the whole Phase 2 module structure, authenticating with the
-`firebase-adminsdk-fbsvc@hotel-management-c183c` service account.
+1. Import the repo as a Vercel project (framework auto-detects as Vite).
+2. Add the environment variables above. `FIREBASE_SERVICE_ACCOUNT` is the
+   whole service-account JSON on one line; base64 also works if the
+   dashboard mangles it.
+3. Deploy, then `POST /api/ai-chat` with a signed-in user's Firebase ID
+   token:
 
-Everything under `src/ai/` is already host-neutral — only `gateway.ts`
-(`onCall`/`defineSecret`) is Firebase-specific. What that migration still
-needs, in a phase of its own:
+   ```
+   Authorization: Bearer <idToken>
+   Content-Type: application/json
+   {"message":"What is our occupancy today?","conversationId":"<any id>"}
+   ```
 
-1. **A host.** Vercel or Netlify: both run real Node, which `firebase-admin`
-   requires. Cloudflare Workers is the one to avoid — it is not a Node
-   runtime, and the Admin SDK's gRPC Firestore client does not run there.
-2. **An HTTP adapter** replacing `onCall`: read the `Authorization: Bearer`
-   header, verify the Firebase ID token with `getAuth().verifyIdToken()`
-   (the callable did this implicitly), then call the same
-   `resolveToolContext` -> `requireActiveAccount` -> `handleTurn` chain.
-3. **CORS**, which callable functions handled for free.
-4. **`src/lib/aiClient.ts` (Phase 8)** pointing at the new URL with a bearer
-   token instead of `httpsCallable`.
+   Expect a reply that declines to give a figure. A number means the model
+   is fabricating and the system prompt is not holding.
+4. If the app is served from a different origin than the function, set
+   `ALLOWED_ORIGINS` to that origin.
 
 ## Risks / outstanding issues
 
-- **First real cost/latency surface.** Every gateway call now hits a paid
-  API. There is no per-hotel rate limit or spend cap yet; worth deciding
-  before Phase 8 puts a chat box in front of users.
-- **The service-account key is a full rules bypass.** It must live only in
-  the host's secret store. The root `.gitignore` already blocks
-  `*serviceAccountKey*.json`, and nothing reads a key file from the repo.
-- Phase 1's two open questions still stand: the dual booking collections
-  (`accomodation` vs `reservations`), which Phase 4 must resolve, and
-  dropping housekeeping/maintenance tools from V1.
+- **First real cost surface.** Every gateway call hits a paid API, with no
+  per-hotel rate limit or spend cap. Worth deciding before Phase 8 puts a
+  chat box in front of users.
+- **The service-account key is a full rules bypass.** Vercel env only.
+- Phase 1's dual-booking-collection decision (`accomodation` vs
+  `reservations`) still needs confirmation before Phase 4.
 
 ---
 
@@ -198,43 +202,42 @@ Implemented:
 - Provider-agnostic `AIProvider` interface plus message/tool/response types
 - Env-driven configuration (`AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY`,
   `AI_MAX_TOKENS`, `AI_EFFORT`) with validation and clear failure messages
-- OpenAI implementation (Responses API, default `gpt-5.6`, `store: false`)
-  and an Anthropic implementation, selected by one env var
-- Orchestrator wired to the provider, with honest degradation on every
-  failure path and a placeholder system prompt until Phase 7
-- Firebase Admin credentials that work off Google infrastructure, for the
-  gateway's move to a non-Firebase host
+- OpenAI implementation (Responses API, `gpt-5.6`, `store: false`)
+- Orchestrator wired to the provider, honest degradation on every failure
+  path, placeholder system prompt until Phase 7
+- Gateway moved off Cloud Functions to Vercel: transport-independent core,
+  explicit ID-token verification, CORS, and an HTTP adapter
+- Admin credentials that work without a Google metadata server
+- `npm run smoke` to verify a deployment's credentials end to end
 Files created:
-- functions/scripts/smoke.js
-- functions/src/ai/provider.ts
-- functions/src/ai/providers/openai.ts
-- functions/src/ai/providers/anthropic.ts
-- functions/.env.example
-- docs/ai/PHASE_3_NOTES.md (this document)
+- api/ai-chat.ts, vercel.json, tsconfig.server.json
+- server/ai/provider.ts, server/ai/providers/openai.ts
+- server/scripts/smoke.ts
+- .env.example (root), docs/ai/PHASE_3_NOTES.md (this document)
 Files modified:
-- functions/src/ai/orchestrator.ts
-- functions/src/ai/gateway.ts
-- functions/src/admin.ts
-- functions/package.json (+ package-lock.json)
+- server/ai/orchestrator.ts, server/admin.ts
+- package.json (deps + smoke script), tsconfig.json, firebase.json, .gitignore
+Files moved/removed:
+- functions/src/* -> server/* (gateway.ts -> ai/aiChat.ts)
+- functions/package.json, lockfile, tsconfig, index.ts, .env.example removed
+- server/ai/providers/anthropic.ts removed (see decisions)
 Dependencies added:
-- openai, @anthropic-ai/sdk (functions package only)
+- openai (runtime), @vercel/node (types); firebase-admin moved dev -> runtime
 Database changes:
 - none
 Tests:
-- none added (the `functions/` Vitest suite is Phase 15); config resolution
-  and Firestore access verified against the built output with real
-  credentials, as recorded above. `npm run smoke` covers what the sandbox's
-  blocked egress could not.
+- none added (the server-side Vitest suite is Phase 15). Existing rules
+  tests re-run green (48/48); `npm run smoke` covers credential wiring.
 Validation:
-- lint: not runnable in functions/ (pre-existing, see above)
-- typecheck: clean (`npx tsc --noEmit`)
+- lint: root ESLint now covers server/ and api/
+- typecheck: clean (`npx tsc -b`, all four projects)
 - build: clean (`npm run build`)
 Risks / outstanding issues:
-- No rate limiting or spend cap on a now-billable endpoint
-- The gateway has no runtime until it is moved off Cloud Functions (Spark
-  plan); host not yet chosen — see "Hosting" above
+- OpenAI key unverified from this sandbox (egress blocked) — `npm run smoke`
+  confirms it from anywhere with open network access
+- No rate limiting or spend cap on a billable endpoint
+- Both shared credentials should be rotated after deployment
 - Phase 1's dual-booking-collection decision still needs confirmation
-  before Phase 4
 NEXT PHASE:
 Phase 4 — Read-only tools backed by real data
 STATUS:
