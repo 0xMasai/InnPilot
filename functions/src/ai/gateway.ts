@@ -14,9 +14,20 @@
  * all of that lives in the modules it calls.
  */
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 import { resolveToolContext } from "./contextManager";
 import { requireActiveAccount } from "./permissionGuard";
 import { handleTurn } from "./orchestrator";
+
+/**
+ * The LLM credential, bound to this function below so it lands in
+ * `process.env.AI_API_KEY` at runtime — where `provider.ts` reads it.
+ * Set it with: firebase functions:secrets:set AI_API_KEY
+ *
+ * AI_PROVIDER / AI_MODEL / AI_MAX_TOKENS / AI_EFFORT are non-secret and
+ * come from `functions/.env` (see functions/.env.example).
+ */
+const aiApiKey = defineSecret("AI_API_KEY");
 
 interface AiChatRequest {
   message: string;
@@ -37,23 +48,32 @@ function validateRequest(raw: unknown): AiChatRequest {
   return { message: body.message, conversationId: body.conversationId };
 }
 
-export const aiChat = onCall({ region: "us-central1" }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Sign in required.");
+export const aiChat = onCall(
+  {
+    region: "us-central1",
+    secrets: [aiApiKey],
+    // Comfortably longer than the provider's own request timeout, so a slow
+    // model surfaces as a provider error rather than a function timeout.
+    timeoutSeconds: 120,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in required.");
+    }
+
+    const { message, conversationId } = validateRequest(request.data);
+
+    const ctx = await resolveToolContext(request.auth.uid, conversationId);
+
+    try {
+      requireActiveAccount(ctx);
+    } catch {
+      throw new HttpsError(
+        "permission-denied",
+        "This account is not yet linked to a hotel."
+      );
+    }
+
+    return handleTurn(ctx, message);
   }
-
-  const { message, conversationId } = validateRequest(request.data);
-
-  const ctx = await resolveToolContext(request.auth.uid, conversationId);
-
-  try {
-    requireActiveAccount(ctx);
-  } catch {
-    throw new HttpsError(
-      "permission-denied",
-      "This account is not yet linked to a hotel."
-    );
-  }
-
-  return handleTurn(ctx, message);
-});
+);
