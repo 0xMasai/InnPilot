@@ -22,13 +22,31 @@
 
 import { createOpenAIProvider } from "./providers/openai";
 
-/** Message roles this layer exchanges with a provider. */
-export type ProviderRole = "user" | "assistant";
-
-export interface ProviderMessage {
-  role: ProviderRole;
-  content: string;
-}
+/**
+ * One entry in the transcript sent to a provider.
+ *
+ * `assistant` turns carry `raw` — the provider's own representation of
+ * that turn — because a tool round-trip has to replay the model's own tool
+ * call before its result is accepted, and reasoning models additionally
+ * require their reasoning items echoed back verbatim. Callers get `raw`
+ * from a previous `ProviderResponse` and pass it straight back; they never
+ * inspect it. Turns rebuilt from stored history simply omit it.
+ */
+export type ProviderTurn =
+  | { role: "user"; content: string }
+  | {
+      role: "assistant";
+      content: string;
+      toolUses?: ProviderToolUse[];
+      raw?: unknown;
+    }
+  | {
+      role: "tool_result";
+      toolUseId: string;
+      toolName: string;
+      /** JSON the tool returned, or a JSON error object. Never prose. */
+      content: string;
+    };
 
 /**
  * A tool as described *to the model*. Deliberately a plain JSON Schema
@@ -51,8 +69,8 @@ export interface ProviderToolUse {
 
 export interface ProviderRequest {
   system: string;
-  /** Chronological; must start with a user message. */
-  messages: ProviderMessage[];
+  /** Chronological; must start with a user turn. */
+  messages: ProviderTurn[];
   tools?: ProviderToolSchema[];
 }
 

@@ -19,6 +19,7 @@ import type {
   ProviderResponse,
   ProviderStopReason,
   ProviderToolUse,
+  ProviderTurn,
 } from "../provider";
 import { ProviderRequestError } from "../provider";
 
@@ -43,6 +44,40 @@ function parseToolArguments(raw: string, toolName: string): unknown {
   }
 }
 
+/**
+ * Transcript -> Responses API input items.
+ *
+ * An assistant turn with `raw` is spread back verbatim: those are the
+ * items this API returned (reasoning, message, function_call), and a
+ * `function_call_output` is only accepted when the `function_call` it
+ * answers is present in the same input. Turns rebuilt from stored history
+ * have no `raw` and become a plain assistant message.
+ */
+function toResponseInput(turns: ProviderTurn[]): OpenAI.Responses.ResponseInput {
+  const items: OpenAI.Responses.ResponseInput = [];
+
+  for (const turn of turns) {
+    if (turn.role === "tool_result") {
+      items.push({
+        type: "function_call_output",
+        call_id: turn.toolUseId,
+        output: turn.content,
+      });
+      continue;
+    }
+
+    if (turn.role === "assistant" && turn.raw) {
+      items.push(...(turn.raw as OpenAI.Responses.ResponseInput));
+      continue;
+    }
+
+    if (!turn.content.trim()) continue;
+    items.push({ role: turn.role, content: turn.content });
+  }
+
+  return items;
+}
+
 export function createOpenAIProvider(config: ProviderConfig): AIProvider {
   const client = new OpenAI({
     apiKey: config.apiKey,
@@ -60,10 +95,7 @@ export function createOpenAIProvider(config: ProviderConfig): AIProvider {
         response = await client.responses.create({
           model: config.model,
           instructions: request.system,
-          input: request.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          input: toResponseInput(request.messages),
           max_output_tokens: config.maxTokens,
           reasoning: { effort: config.effort },
           // Hotel operational data must not be retained provider-side for

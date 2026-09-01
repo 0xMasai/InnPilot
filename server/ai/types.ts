@@ -33,6 +33,12 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   description: string;
   /** Roles allowed to invoke this tool. Checked by the Permission Guard. */
   allowedRoles: Role[];
+  /**
+   * JSON Schema for the tool's arguments, as shown to the model. It is
+   * documentation for the model, never a security boundary: `validateInput`
+   * re-checks everything server-side, because a model can send anything.
+   */
+  inputSchema: Record<string, unknown>;
   /** True for tools that change data — gated by the Confirmation Manager. */
   isWrite: boolean;
   validateInput: (raw: unknown) => TInput;
