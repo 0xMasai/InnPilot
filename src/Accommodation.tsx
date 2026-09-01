@@ -38,6 +38,7 @@ import {
 } from "./lib/collections";
 import { bookingStatusOf, getRange, inRange } from "./lib/metrics";
 import { logAction } from "./lib/audit";
+import { addRoom as addRoomService, setRoomStatus as setRoomStatusService } from "./lib/roomService";
 
 interface Booking {
   id?: string;
@@ -68,6 +69,15 @@ interface Room {
 }
 
 const roomTypes = ["Single", "Double", "Suite"];
+
+/** Adapts this page's Room rows to the room service's document shape. */
+const toRoomInventory = (room: Room) => ({
+  id: room.id ?? "",
+  number: room.number,
+  type: room.type,
+  price: room.price,
+  status: room.status,
+});
 
 /** Shared derivation (lib/metrics) keeps this page consistent with dashboards. */
 const bookingStatus = (b: Booking): BookingStatus => bookingStatusOf(b);
@@ -278,36 +288,26 @@ export default function AccommodationDashboard() {
     setRoomError("");
     const number = roomForm.number.trim();
     if (!number) return setRoomError("Enter a room number.");
-    if (rooms.some((r) => r.number === number)) {
-      return setRoomError(`Room ${number} already exists.`);
-    }
     if (!hotelId) return setRoomError("No hotel context — please sign in again.");
-    try {
-      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.ROOMS), {
-        number,
-        type: roomForm.type,
-        price: roomForm.price || 0,
-        status: roomForm.status,
-        createdAt: serverTimestamp(),
-        userId: auth.currentUser?.uid || "unknown",
-      });
-      logAction(hotelId, "Room added", "room", ref.id, `${number} (${roomForm.type})`);
-      setRoomModalOpen(false);
-      setRoomForm({ number: "", type: "Single", status: "Available" });
-    } catch (err) {
-      console.error(err);
-      setRoomError("Failed to add room. Please try again.");
-    }
+
+    const result = await addRoomService({
+      hotelId,
+      uid: auth.currentUser?.uid || "unknown",
+      number,
+      type: roomForm.type,
+      price: roomForm.price,
+      status: roomForm.status,
+      existingRooms: rooms.map(toRoomInventory),
+    });
+
+    if (!result.ok) return setRoomError(result.error);
+    setRoomModalOpen(false);
+    setRoomForm({ number: "", type: "Single", status: "Available" });
   };
 
   const setRoomStatus = async (room: Room, status: RoomStatus) => {
     if (!room.id || room.status === status || !hotelId) return;
-    try {
-      await updateDoc(hotelDoc(hotelId, COLLECTIONS.ROOMS, room.id), { status });
-      logAction(hotelId, "Room status changed", "room", room.id, `${room.number}: ${room.status} → ${status}`);
-    } catch (err) {
-      console.error("Failed to update room status:", err);
-    }
+    await setRoomStatusService(hotelId, toRoomInventory(room), status);
   };
 
   /** Booking lifecycle transitions; keeps the room's status in sync. */

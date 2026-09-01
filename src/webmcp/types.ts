@@ -1,16 +1,10 @@
 /**
- * The InnPilot WebMCP toolset.
+ * The InnPilot WebMCP tool contract.
  *
- * Empty by design in Phase 1: the foundation is being landed without
- * exposing any business capability to agents yet. Phase 2 adds tools to
- * INNPILOT_WEBMCP_TOOLS and nowhere else — registry.ts picks them up with
- * no further changes, and every one of them inherits the auth/role/tenant
- * guard automatically.
- *
- * Phase 2 tools must call InnPilot's existing services rather than
- * re-implementing rules or touching Firestore directly. See
- * docs/webmcp/PHASE_1_FOUNDATION.md for the per-capability mapping of
- * which functions to reuse.
+ * Tools live in ./tools and are aggregated by ./tools/index.ts. Every one
+ * of them inherits the auth/role/tenant guard in ./registry.ts, and must
+ * call InnPilot's existing services rather than re-implementing business
+ * rules or touching Firestore directly.
  */
 import type { Role } from "../types/models";
 
@@ -53,5 +47,14 @@ export interface InnPilotWebMCPTool {
   ): Promise<WebMCPToolResult> | WebMCPToolResult;
 }
 
-/** Phase 2 populates this array. Phase 1 ships it empty on purpose. */
-export const INNPILOT_WEBMCP_TOOLS: InnPilotWebMCPTool[] = [];
+/**
+ * Raised by input helpers when an agent supplies bad arguments. The
+ * registry returns its message to the agent verbatim, so the agent can
+ * correct the call rather than seeing a wrapped internal error.
+ */
+export class ToolInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolInputError";
+  }
+}

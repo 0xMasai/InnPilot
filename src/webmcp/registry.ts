@@ -18,14 +18,15 @@
  *    invoke time, against live auth state rather than whatever was true
  *    at registration time.
  *
- * Phase 1 registers zero tools by design; see ./tools.ts.
+ * The toolset itself lives in ./tools; the contract is in ./types.
  */
 import type { Role } from "../types/models";
+import { INNPILOT_WEBMCP_TOOLS } from "./tools";
 import {
-  INNPILOT_WEBMCP_TOOLS,
+  ToolInputError,
   type InnPilotWebMCPTool,
   type WebMCPAuthContext,
-} from "./tools";
+} from "./types";
 
 export type { WebMCPAuthContext };
 
@@ -161,6 +162,9 @@ function toDescriptor(tool: InnPilotWebMCPTool): WebMCPToolDescriptor {
       try {
         return await guardedExecute(tool, input);
       } catch (error) {
+        // Bad arguments are the agent's to fix, so its own wording goes
+        // back unwrapped. Anything else is an InnPilot-side failure.
+        if (error instanceof ToolInputError) return textResult(error.message, true);
         // A thrown tool must not surface as an unhandled rejection inside
         // the browser's agent plumbing.
         const message = error instanceof Error ? error.message : String(error);
