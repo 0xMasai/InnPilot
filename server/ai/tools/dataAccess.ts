@@ -12,6 +12,7 @@
  * moves the AI with the app rather than leaving it reading a dead path.
  */
 import { db } from "../../admin";
+import { cachedRead } from "../requestCache";
 import { COLLECTIONS } from "../../../src/lib/collections";
 import type {
   BookingRecord,
@@ -27,18 +28,27 @@ function hotelCollection(hotelId: string, name: string) {
   return db.collection("hotels").doc(hotelId).collection(name);
 }
 
-async function fetchAll<T>(hotelId: string, name: string): Promise<T[]> {
-  const snap = await hotelCollection(hotelId, name).get();
-  return snap.docs.map((d) => d.data() as T);
+/**
+ * Reads go through the per-request cache, so two tools in the same turn
+ * that need the same collection issue one query between them. Outside a
+ * request scope (a script, a test) this is a plain read.
+ */
+function fetchAll<T>(hotelId: string, name: string): Promise<T[]> {
+  return cachedRead(`${hotelId}/${name}`, async () => {
+    const snap = await hotelCollection(hotelId, name).get();
+    return snap.docs.map((d) => d.data() as T);
+  });
 }
 
 /** Same, keeping each document's id — for tools that list records. */
-async function fetchAllWithIds<T>(
+function fetchAllWithIds<T>(
   hotelId: string,
   name: string
 ): Promise<(T & { id: string })[]> {
-  const snap = await hotelCollection(hotelId, name).get();
-  return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  return cachedRead(`${hotelId}/${name}#withIds`, async () => {
+    const snap = await hotelCollection(hotelId, name).get();
+    return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  });
 }
 
 /**

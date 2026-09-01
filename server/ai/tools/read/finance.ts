@@ -60,9 +60,15 @@ function breakdown(rows: { key: string; amount: number }[]) {
 export const getRevenue: ToolDefinition<PeriodInput, unknown> = {
   name: "get_revenue",
   description:
-    "Revenue for a period, broken down into accommodation, restaurant and " +
-    "conference, with recorded expenses and the net operating result. This " +
-    "is the same calculation the Overview and Reports pages show.",
+    "Revenue for a period, already broken down into accommodation, restaurant " +
+    "and conference, with recorded expenses and the net operating result. The " +
+    "same calculation the Overview and Reports pages show. " +
+    "USE FOR: 'how much did we make', 'revenue this week', 'are we profitable', " +
+    "and any comparison of income against spending. " +
+    "THIS ALONE IS ENOUGH for a revenue question: it already contains the " +
+    "restaurant, conference and expense totals, so do not also call " +
+    "get_restaurant_sales, get_conference_revenue or get_expenses unless the " +
+    "user asks specifically how a total breaks down by category or department.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: periodSchema,
@@ -105,7 +111,11 @@ export const getRevenue: ToolDefinition<PeriodInput, unknown> = {
 export const getExpenses: ToolDefinition<PeriodInput, unknown> = {
   name: "get_expenses",
   description:
-    "Expenses recorded for a period, totalled and broken down by department.",
+    "Expenses for a period, broken down BY DEPARTMENT. " +
+    "USE FOR: 'what did we spend on', 'which department costs most', " +
+    "'break down our expenses'. " +
+    "NOT FOR: the expense total alone or expenses against revenue — " +
+    "get_revenue returns both, in one call.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: periodSchema,
@@ -132,8 +142,11 @@ export const getExpenses: ToolDefinition<PeriodInput, unknown> = {
 export const getRestaurantSales: ToolDefinition<PeriodInput, unknown> = {
   name: "get_restaurant_sales",
   description:
-    "Restaurant sales for a period, totalled and broken down by category. " +
-    "Cancelled orders are excluded, matching the app's revenue rules.",
+    "Restaurant sales for a period, broken down BY CATEGORY, excluding " +
+    "cancelled orders. " +
+    "USE FOR: 'how did the restaurant do', 'what sells best', 'food vs drinks'. " +
+    "NOT FOR: the restaurant total as part of overall revenue — get_revenue " +
+    "already includes it.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: periodSchema,
@@ -167,8 +180,12 @@ interface ConferenceEvent {
 export const getConferenceRevenue: ToolDefinition<PeriodInput, unknown> = {
   name: "get_conference_revenue",
   description:
-    "Conference and events revenue for a period, totalled and broken down " +
-    "by conference room, with attendee numbers.",
+    "Conference and events revenue for a period, broken down BY ROOM, with " +
+    "attendee numbers. " +
+    "USE FOR: 'how are events doing', 'which conference room earns most', " +
+    "'how many people attended'. " +
+    "NOT FOR: the conference total as part of overall revenue — get_revenue " +
+    "already includes it.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: periodSchema,

@@ -31,10 +31,14 @@ const CURRENCY = "UGX";
 export const generateReport: ToolDefinition<PeriodInput, unknown> = {
   name: "generate_report",
   description:
-    "A full operations report for a period: occupancy, arrivals and " +
-    "departures, revenue by source, expenses by department, and outstanding " +
-    "payments. Use for 'generate today's report', 'how did this week go', or " +
-    "any request for an overall summary.",
+    "The whole picture for a period in ONE call: occupancy, today's arrivals " +
+    "and departures, revenue by source, expenses by department, restaurant by " +
+    "category, activity counts and outstanding payments. " +
+    "USE FOR: 'generate today's report', 'how did this week go', 'how is the " +
+    "hotel doing', 'give me a summary', 'daily briefing'. " +
+    "PREFER THIS over calling get_occupancy, get_revenue, get_expenses and " +
+    "get_check_ins separately: it returns all of them, from one consistent " +
+    "read, and costs a fraction of the calls.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: {

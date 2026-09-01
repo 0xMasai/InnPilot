@@ -65,6 +65,13 @@ export interface ToolCallRecord {
   status: "ok" | "error" | "confirmation_required" | "denied";
   errorMessage?: string;
   durationMs: number;
+  /**
+   * True when the model asked for a call it had already made this turn and
+   * was served the earlier result instead of a repeated query. Kept in the
+   * record so the UI and Phase 12's audit trail show what the model asked
+   * for, not a tidied-up version of it.
+   */
+  reusedEarlierResult?: boolean;
 }
 
 /** Structured result returned by the Gateway to the client. */

@@ -34,9 +34,12 @@ function guestByRoom(bookings: BookingRecord[]): Map<string, string> {
 export const getOccupancy: ToolDefinition<Record<string, never>, unknown> = {
   name: "get_occupancy",
   description:
-    "Current occupancy for the hotel: how many rooms are occupied, available, " +
-    "being cleaned, under maintenance or out of service, and the occupancy " +
-    "rate. Point-in-time, not a period — use get_revenue for money over time.",
+    "Occupancy right now: counts of rooms occupied, available, being cleaned, " +
+    "under maintenance or out of service, plus the occupancy rate and how " +
+    "many guests are in house. " +
+    "USE FOR: 'what's our occupancy', 'how full are we', 'how many rooms are free'. " +
+    "NOT FOR: a list of which specific rooms (get_room_status), occupancy over " +
+    "a past period (this is current state only), or money (get_revenue).",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -91,9 +94,12 @@ const MAX_ROOMS_RETURNED = 100;
 export const getRoomStatus: ToolDefinition<{ filter: string }, unknown> = {
   name: "get_room_status",
   description:
-    "List individual rooms with their number, type and status, optionally " +
-    "filtered to one status. Use for questions about specific rooms " +
-    "('which rooms need cleaning?', 'is room 204 free?').",
+    "The room-by-room list: number, type, status, and the in-house guest " +
+    "where there is one. Optionally filtered to a single status. " +
+    "USE FOR: 'which rooms need cleaning', 'is room 204 free', 'list the " +
+    "occupied rooms'. " +
+    "NOT FOR: just the totals or the occupancy rate — get_occupancy already " +
+    "returns those, and costs less than a list you have to count.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: {

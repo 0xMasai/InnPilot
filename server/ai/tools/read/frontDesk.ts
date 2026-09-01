@@ -76,8 +76,12 @@ function isLive(status: BookingStatus): boolean {
 export const getCheckIns: ToolDefinition<DateInput, unknown> = {
   name: "get_check_ins",
   description:
-    "Guests due to arrive on a given day (today by default), with room, " +
-    "status and payment status. Cancelled and no-show bookings are excluded.",
+    "Arrivals for ONE day (today by default): who is due in, their room, " +
+    "status and payment status. Cancelled and no-shows excluded. " +
+    "USE FOR: 'who is arriving today', 'how many check-ins tomorrow', " +
+    "'arrivals on the 14th'. " +
+    "NOT FOR: a forward-looking list across many days (get_reservations with " +
+    "window 'upcoming').",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: dateSchema,
@@ -104,8 +108,13 @@ export const getCheckIns: ToolDefinition<DateInput, unknown> = {
 export const getCheckOuts: ToolDefinition<DateInput, unknown> = {
   name: "get_check_outs",
   description:
-    "Guests due to depart on a given day (today by default), with room, " +
-    "status and payment status. Cancelled and no-show bookings are excluded.",
+    "Departures for ONE day (today by default): who is due out, their room, " +
+    "status, payment status, and how many still owe. Cancelled and no-shows " +
+    "excluded. " +
+    "USE FOR: 'who is checking out today', 'departures tomorrow', 'who leaves " +
+    "with an unpaid balance'. " +
+    "NOT FOR: guests currently in house (get_reservations with window " +
+    "'in_house').",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: dateSchema,
@@ -157,9 +166,12 @@ interface ReservationDoc {
 export const getReservations: ToolDefinition<ReservationsInput, unknown> = {
   name: "get_reservations",
   description:
-    "The reservation book: upcoming reservations (default), those arriving " +
-    "today, guests currently in house, or recently past ones. Use " +
-    "get_check_ins/get_check_outs for a specific day's arrivals or departures.",
+    "The reservation book across days: upcoming (default), arriving today, " +
+    "currently in house, or recently departed. " +
+    "USE FOR: 'what's coming up', 'who is staying with us', 'show me the next " +
+    "few bookings'. " +
+    "NOT FOR: one specific day's arrivals or departures — get_check_ins and " +
+    "get_check_outs answer those directly.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: {

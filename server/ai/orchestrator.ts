@@ -35,6 +35,7 @@ import {
   getProvider,
   isProviderConfigured,
 } from "./provider";
+import { withRequestCache } from "./requestCache";
 import type { ProviderToolSchema, ProviderToolUse, ProviderTurn } from "./provider";
 
 /** How many prior messages of context the model gets. */
@@ -46,6 +47,16 @@ const HISTORY_LIMIT = 20;
  * stops a confused model from looping until the platform kills the request.
  */
 const MAX_TOOL_ROUNDS = 3;
+
+/**
+ * Total tool calls one question may cost. Three rounds of a model calling
+ * everything it can think of is a bill and a latency problem; a question
+ * that genuinely needs more than this is one the user should ask in parts.
+ */
+const MAX_TOOL_CALLS_PER_TURN = 8;
+
+const BUDGET_EXHAUSTED_MESSAGE =
+  "Tool call budget for this turn is exhausted. Answer from what you already retrieved, and say what you could not check.";
 
 const NOT_CONFIGURED_REPLY =
   "InnPilot AI isn't switched on for this deployment yet — no AI provider is configured, so I can't answer questions about your hotel's data. Ask your administrator to configure the assistant.";
@@ -80,7 +91,11 @@ function buildSystemPrompt(ctx: ToolContext, tools: RegisteredTool[]): string {
   } else {
     lines.push(
       "Use your tools for every factual claim about this hotel. Never state an operational, financial, reservation, or guest figure that did not come from a tool result in this conversation — no estimates, no averages, no filling gaps from memory.",
-      "Call only the tools you need to answer the question asked, and prefer one well-chosen tool over several.",
+      "Choose the fewest tools that answer the question. Read each tool's USE FOR and NOT FOR before choosing: several tools overlap on purpose, and the one that answers the question in a single call is the right one.",
+      "For a broad question — how are we doing, today's report, a summary, a briefing — call generate_report once. It already contains occupancy, arrivals, departures, revenue by source and expenses by department; calling those separately as well is wasted.",
+      "For a revenue question, get_revenue alone is enough: it already includes restaurant, conference and expense totals. Reach for get_restaurant_sales, get_conference_revenue or get_expenses only when the user asks how a total splits by category or department.",
+      "Do not call a tool twice with the same arguments in one turn; you already have that result. If a result does not answer the question, pick a different tool rather than repeating one.",
+      "When one lookup is enough, answer from it. Only chain a second call when the first genuinely leaves the question open.",
       "If a tool returns an error or no data, say so plainly and say what you could not retrieve. Never substitute a plausible number.",
       "Amounts are in UGX unless a tool says otherwise. Report figures as the tools give them; do not convert currencies.",
       "Distinguish what you retrieved from what you infer. Facts come from tools; analysis is yours, and should be labelled as such.",
@@ -123,7 +138,8 @@ function toProviderTurns(history: { role: string; content: string }[]): Provider
 }
 
 interface ExecutedTool {
-  turn: ProviderTurn;
+  /** Always a tool_result turn: every path here answers a specific call. */
+  turn: Extract<ProviderTurn, { role: "tool_result" }>;
   record: ToolCallRecord;
 }
 
@@ -207,6 +223,87 @@ async function executeToolCall(
   }
 }
 
+/**
+ * A stable key for "this exact call". Built from the *validated* input, so
+ * `{}` and `{"period":"today"}` are recognised as the same request rather
+ * than paid for twice.
+ */
+function callKey(name: string, validatedInput: unknown): string {
+  return `${name}:${stableStringify(validatedInput)}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      return Object.fromEntries(
+        Object.entries(val as Record<string, unknown>).sort(([a], [b]) =>
+          a.localeCompare(b)
+        )
+      );
+    }
+    return val;
+  });
+}
+
+function budgetExhausted(call: ProviderToolUse): ExecutedTool {
+  return {
+    turn: {
+      role: "tool_result",
+      toolUseId: call.id,
+      toolName: call.name,
+      content: JSON.stringify({ error: BUDGET_EXHAUSTED_MESSAGE }),
+    },
+    record: {
+      toolName: call.name,
+      input: call.input,
+      status: "error",
+      errorMessage: BUDGET_EXHAUSTED_MESSAGE,
+      durationMs: 0,
+    },
+  };
+}
+
+/**
+ * Run a tool call, or serve the result of an identical one from earlier in
+ * this turn. A model that asks the same question twice — common when it
+ * re-reads its own transcript — should not cost two Firestore queries or
+ * two entries in the audit trail's worth of work.
+ */
+async function runOrReuse(
+  ctx: ToolContext,
+  call: ProviderToolUse,
+  completed: Map<string, ExecutedTool>
+): Promise<ExecutedTool> {
+  const tool = getTool(call.name);
+  let key: string | undefined;
+
+  // Only successfully validated calls can be keyed; anything else falls
+  // through to executeToolCall, which produces the right error.
+  if (tool) {
+    try {
+      key = callKey(call.name, tool.validateInput(call.input));
+    } catch {
+      key = undefined;
+    }
+  }
+
+  if (key) {
+    const earlier = completed.get(key);
+    if (earlier) {
+      return {
+        // Same content, but tied to *this* call id so the transcript stays
+        // valid — a tool result must answer the call that asked for it.
+        turn: { ...earlier.turn, toolUseId: call.id },
+        record: { ...earlier.record, durationMs: 0, reusedEarlierResult: true },
+      };
+    }
+  }
+
+  const executed = await executeToolCall(ctx, call);
+  if (key && executed.record.status === "ok") completed.set(key, executed);
+  return executed;
+}
+
 export async function handleTurn(
   ctx: ToolContext,
   userMessage: string
@@ -231,7 +328,12 @@ export async function handleTurn(
     content: userMessage,
   });
 
-  const { reply, toolCalls } = await runTurn(ctx, hotelId, userMessage);
+  // One cache for the whole turn: tools that need the same collection
+  // share a single read, and every figure in the reply comes from one
+  // consistent snapshot.
+  const { reply, toolCalls } = await withRequestCache(() =>
+    runTurn(ctx, hotelId, userMessage)
+  );
 
   await appendMessage({
     hotelId,
@@ -268,6 +370,11 @@ async function runTurn(
   const system = buildSystemPrompt(ctx, tools);
   const schemas = toolSchemas(tools);
 
+  /** Results already produced this turn, keyed by tool + arguments. */
+  const completed = new Map<string, ExecutedTool>();
+  /** Calls issued in the round currently being executed. */
+  const pending = new Set<string>();
+
   try {
     const provider = getProvider();
 
@@ -296,8 +403,15 @@ async function runTurn(
       // Tool handlers are independent reads; running them together keeps a
       // multi-tool question inside one request budget.
       const executed = await Promise.all(
-        response.toolUses.map((call) => executeToolCall(ctx, call))
+        response.toolUses.map((call) => {
+          if (toolCalls.length + pending.size >= MAX_TOOL_CALLS_PER_TURN) {
+            return budgetExhausted(call);
+          }
+          pending.add(call.id);
+          return runOrReuse(ctx, call, completed);
+        })
       );
+      pending.clear();
 
       for (const { turn, record } of executed) {
         turns.push(turn);
