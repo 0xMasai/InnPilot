@@ -71,3 +71,54 @@ export default defineConfig([
   },
 ])
 ```
+
+## WebMCP integration
+
+InnPilot exposes its capabilities to AI agents through **WebMCP**, the
+browser API for offering agent-callable tools from the page itself. There
+is no MCP server and no bundled chatbot: the browser hosts the tools, and
+they run inside the app against the already-authenticated Firebase session.
+
+```
+agent → WebMCP → document.modelContext → InnPilot → services → Firebase
+```
+
+### Layout
+
+| File | Purpose |
+| --- | --- |
+| `src/types/webmcp.d.ts` | Minimal local types for the API (it ships none). |
+| `src/webmcp/registry.ts` | Detection, registration lifecycle, auth/tenant guard. |
+| `src/webmcp/tools.ts` | The toolset and its contract. |
+| `src/webmcp/WebMCPProvider.tsx` | Binds auth state to the registry; rendered inside `AuthProvider` in `App.tsx`. |
+
+### Browser feature detection
+
+WebMCP is experimental, requires **HTTPS**, and is missing from most
+browsers. `registry.ts` resolves `document.modelContext` first, then the
+deprecated `navigator.modelContext` (removed in favour of `document` in
+Chromium 150+). Where neither exists every entry point is a silent no-op,
+so unsupported browsers run InnPilot exactly as before. Call
+`getWebMCPStatus()` to see what was detected — in dev the result is logged
+once on sign-in.
+
+### Registering tools
+
+Tools go in `INNPILOT_WEBMCP_TOOLS` (`src/webmcp/tools.ts`) and nowhere
+else; `registry.ts` picks them up automatically. Each one inherits:
+
+- **RBAC** — defaults to `["hotel_admin", "staff"]`, the same default as
+  `ProtectedRoute`, so an agent can't exceed the user's own UI permissions.
+- **Tenant scoping** — `execute` receives a guaranteed non-null `hotelId`
+  for use with `hotelCollection()` / `hotelDoc()`.
+- **Live auth checks** — role and hotel are re-verified on every call, not
+  at registration time.
+
+Registration is idempotent: `syncWebMCP()` short-circuits unless the
+session identity (`uid | role | hotelId`) actually changes, so React
+re-renders never re-register anything, and teardown runs through an
+`AbortController`.
+
+**The toolset is intentionally empty today** — Phase 1 landed the
+foundation only. See `docs/webmcp/PHASE_1_FOUNDATION.md` for the audit of
+which existing services each future tool must reuse, and what Phase 2 adds.
