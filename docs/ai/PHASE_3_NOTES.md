@@ -16,6 +16,7 @@ functions/src/ai/
   gateway.ts               # Firebase callable adapter (see hosting note below)
   ../admin.ts              # credentials that work off Google infrastructure
 functions/.env.example     # documents every AI_* and credential variable
+functions/scripts/smoke.js # `npm run smoke` — verifies credentials end to end
 ```
 
 ### The interface
@@ -122,8 +123,38 @@ cap, unknown effort) rather than silently falling back to a default.
   Phase 2, not introduced here; worth fixing when the package gets its own
   test/lint setup in Phase 15.
 - Root app: untouched. No file outside `functions/` and `docs/ai/` changed.
-- No live API call was made — that needs a real `AI_API_KEY` and a running
-  gateway, neither of which this phase provisions.
+
+### Live checks with real credentials
+
+- **Firebase Admin works against the real project.** Using the
+  `firebase-adminsdk-fbsvc@hotel-management-c183c` service account, a
+  read-only query reached Firestore: `users` and `hotels` are both
+  readable, roles come back as the Context Manager expects
+  (`super_admin` with no hotel, `staff` with a hotelId), and the project
+  currently holds one hotel. Nothing was written.
+- **The OpenAI call could not be made from the development sandbox.** Its
+  egress proxy refuses `CONNECT api.openai.com` with a 403 — confirmed with
+  a dummy token, so it is a network restriction, not a credential problem.
+  The key is therefore *unverified*: run `npm run smoke` from a machine with
+  open egress to confirm it.
+- That block did exercise a failure path for free: the provider mapped the
+  403 to `ProviderRequestError(403)` without leaking request content, which
+  is exactly what the orchestrator turns into "I couldn't reach the AI
+  service just now" rather than a fabricated answer.
+
+### Credentials in this working copy
+
+`functions/.env` (provider config + `AI_API_KEY`) and
+`functions/serviceAccountKey.json` exist locally and are **git-ignored** —
+confirmed with `git check-ignore`; neither has ever been staged. They are
+for local runs only. On the deployed host, the same values go in that
+host's secret store, with the service account passed as
+`FIREBASE_SERVICE_ACCOUNT` (one-line JSON or base64) rather than a file.
+
+**Both credentials were shared over chat and should be rotated** once the
+gateway is deployed and working: a new key in the OpenAI dashboard, and a
+new service-account key in the Firebase console (which lets you delete the
+old one outright).
 
 ## Hosting: the gateway is leaving Cloud Functions
 
@@ -174,6 +205,7 @@ Implemented:
 - Firebase Admin credentials that work off Google infrastructure, for the
   gateway's move to a non-Firebase host
 Files created:
+- functions/scripts/smoke.js
 - functions/src/ai/provider.ts
 - functions/src/ai/providers/openai.ts
 - functions/src/ai/providers/anthropic.ts
@@ -190,7 +222,9 @@ Database changes:
 - none
 Tests:
 - none added (the `functions/` Vitest suite is Phase 15); config resolution
-  verified manually against the built output, as recorded above
+  and Firestore access verified against the built output with real
+  credentials, as recorded above. `npm run smoke` covers what the sandbox's
+  blocked egress could not.
 Validation:
 - lint: not runnable in functions/ (pre-existing, see above)
 - typecheck: clean (`npx tsc --noEmit`)
