@@ -47,3 +47,32 @@ covers a genuinely separate concern). Each `it()` should assert exactly
 one allow/deny outcome — that's what makes a failure point straight at
 the rule that broke, instead of requiring someone to puzzle through a
 multi-assertion test.
+
+## AI agent tests
+
+`tests/ai/` covers the AI layer's security boundary. No emulator or
+credentials needed — the data layer and provider are mocked, so these run
+anywhere:
+
+```bash
+npm run test:ai
+```
+
+- `permissionGuard.test.ts` — the role matrix, mirroring firestore.rules
+- `toolInput.test.ts` — validation, and undeclared arguments (a smuggled
+  `hotelId`) being refused
+- `tenantIsolation.test.ts` — every tool reads only `ctx.hotelId`
+- `conversationAccess.test.ts` — conversations are owned by one user, and
+  ids cannot redirect a Firestore path
+- `promptInjection.test.ts` — instructions planted in hotel data arrive as
+  data, and cannot widen what the model may call
+
+`tests/rules/ai-collections.test.ts` needs the emulator like the other
+rules tests: it asserts no client can read AI conversation history or forge
+a pending write-action.
+
+Everything at once, with the emulator started for you:
+
+```bash
+npm run test:all
+```

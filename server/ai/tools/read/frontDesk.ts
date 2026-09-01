@@ -14,7 +14,12 @@
 import type { ToolDefinition } from "../../types";
 import { STAFF_AND_ADMIN } from "../roles";
 import { fetchBookings, fetchReservations } from "../dataAccess";
-import { asObject, optionalDate, optionalEnum, optionalInt } from "../validation";
+import {
+  optionalDate,
+  optionalEnum,
+  optionalInt,
+  strictObject,
+} from "../validation";
 import { isSameDay, toPMSDate } from "../../../../src/lib/pms";
 import { bookingStatusOf, type BookingRecord } from "../../../../src/lib/metrics";
 import type { BookingStatus } from "../../../../src/lib/collections";
@@ -36,9 +41,16 @@ interface DateInput {
 }
 
 function parseDateInput(raw: unknown): DateInput {
-  const date = optionalDate(asObject(raw), "date");
+  const date = optionalDate(strictObject(raw, ["date"]), "date");
   const today = new Date();
   return { date: date ?? today, isToday: !date || isSameDay(date, today) };
+}
+
+/** See MAX_ROOMS_RETURNED in read/rooms.ts — same reasoning. */
+const MAX_MOVEMENTS_RETURNED = 100;
+
+function truncationNote(total: number, shown: number): string | undefined {
+  return total > shown ? `Showing ${shown} of ${total}.` : undefined;
 }
 
 function describeBooking(booking: BookingRecord) {
@@ -83,7 +95,8 @@ export const getCheckIns: ToolDefinition<DateInput, unknown> = {
       count: arrivals.length,
       stillExpected: arrivals.filter((a) => a.status === "Confirmed").length,
       alreadyCheckedIn: arrivals.filter((a) => a.status === "Checked In").length,
-      arrivals,
+      truncated: truncationNote(arrivals.length, MAX_MOVEMENTS_RETURNED),
+      arrivals: arrivals.slice(0, MAX_MOVEMENTS_RETURNED),
     };
   },
 };
@@ -112,7 +125,8 @@ export const getCheckOuts: ToolDefinition<DateInput, unknown> = {
       alreadyCheckedOut: departures.filter((d) => d.status === "Checked Out").length,
       unpaid: departures.filter((d) => (d.paymentStatus ?? "").toLowerCase() === "pending")
         .length,
-      departures,
+      truncated: truncationNote(departures.length, MAX_MOVEMENTS_RETURNED),
+      departures: departures.slice(0, MAX_MOVEMENTS_RETURNED),
     };
   },
 };
@@ -165,7 +179,7 @@ export const getReservations: ToolDefinition<ReservationsInput, unknown> = {
     additionalProperties: false,
   },
   validateInput: (raw) => {
-    const input = asObject(raw);
+    const input = strictObject(raw, ["window", "limit"]);
     return {
       window: optionalEnum(input, "window", WINDOWS, "upcoming"),
       limit: optionalInt(input, "limit", { min: 1, max: 50, fallback: 20 }),

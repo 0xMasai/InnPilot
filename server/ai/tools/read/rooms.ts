@@ -9,7 +9,7 @@
 import type { ToolDefinition } from "../../types";
 import { STAFF_AND_ADMIN } from "../roles";
 import { fetchBookings, fetchRoomsWithIds } from "../dataAccess";
-import { asObject, optionalEnum } from "../validation";
+import { optionalEnum, strictObject } from "../validation";
 import { occupancyRate } from "../../../../src/lib/pms";
 import { ROOM_STATUSES, type RoomStatus } from "../../../../src/lib/collections";
 import { bookingStatusOf, type BookingRecord } from "../../../../src/lib/metrics";
@@ -40,7 +40,10 @@ export const getOccupancy: ToolDefinition<Record<string, never>, unknown> = {
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: false,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
-  validateInput: () => ({}) as Record<string, never>,
+  validateInput: (raw) => {
+    strictObject(raw, []);
+    return {} as Record<string, never>;
+  },
   handler: async (ctx) => {
     const hotelId = ctx.hotelId as string;
     const [rooms, bookings] = await Promise.all([
@@ -78,6 +81,13 @@ export const getOccupancy: ToolDefinition<Record<string, never>, unknown> = {
 
 const ROOM_FILTERS = ["all", ...ROOM_STATUSES] as const;
 
+/**
+ * Cap on rooms returned in one call. A list is data the model pays for in
+ * context on every subsequent round, so it is bounded here rather than
+ * left to grow with the property; the count fields above stay exact.
+ */
+const MAX_ROOMS_RETURNED = 100;
+
 export const getRoomStatus: ToolDefinition<{ filter: string }, unknown> = {
   name: "get_room_status",
   description:
@@ -98,7 +108,7 @@ export const getRoomStatus: ToolDefinition<{ filter: string }, unknown> = {
     additionalProperties: false,
   },
   validateInput: (raw) => ({
-    filter: optionalEnum(asObject(raw), "filter", ROOM_FILTERS, "all"),
+    filter: optionalEnum(strictObject(raw, ["filter"]), "filter", ROOM_FILTERS, "all"),
   }),
   handler: async (ctx, input) => {
     const hotelId = ctx.hotelId as string;
@@ -113,11 +123,17 @@ export const getRoomStatus: ToolDefinition<{ filter: string }, unknown> = {
         ? rooms
         : rooms.filter((room) => room.status === input.filter);
 
+    const listed = selected.slice(0, MAX_ROOMS_RETURNED);
+
     return {
       filter: input.filter,
       count: selected.length,
       totalRooms: rooms.length,
-      rooms: selected
+      truncated:
+        selected.length > listed.length
+          ? `Showing ${listed.length} of ${selected.length} matching rooms.`
+          : undefined,
+      rooms: listed
         .map((room) => ({
           number: room.number ?? "(unnumbered)",
           type: room.type ?? "Room",

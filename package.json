@@ -19,7 +19,9 @@
     "bootstrap": "tsx scripts/admin/bootstrap.ts",
     "migrate": "tsx scripts/admin/migrate.ts",
     "test:rules": "vitest run tests/rules",
-    "test:rules:watch": "vitest tests/rules"
+    "test:rules:watch": "vitest tests/rules",
+    "test:ai": "vitest run tests/ai",
+    "test:all": "firebase emulators:exec --only firestore \"vitest run\""
   },
   "build": {
     "appId": "com.hotel.management",

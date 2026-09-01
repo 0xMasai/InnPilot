@@ -26,6 +26,35 @@ export function asObject(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
+/**
+ * Like `asObject`, but refuses any key the tool did not declare.
+ *
+ * Tools take their hotel from the server-derived ToolContext and never
+ * from arguments, so a `hotelId`, `userId` or `role` in tool input is
+ * already ignored. Rejecting it is still better than ignoring it: it
+ * turns a silent no-op into a visible error, and it means a future tool
+ * cannot accidentally start honouring a field the model supplied. Unknown
+ * keys are also the shape a model's own confusion takes, and a clear
+ * error lets it correct itself.
+ */
+export function strictObject(
+  raw: unknown,
+  allowedKeys: readonly string[]
+): Record<string, unknown> {
+  const input = asObject(raw);
+  const unknown = Object.keys(input).filter((key) => !allowedKeys.includes(key));
+
+  if (unknown.length > 0) {
+    throw new ToolValidationError(
+      `Unknown argument(s): ${unknown.sort().join(", ")}. This tool accepts: ${
+        allowedKeys.length ? [...allowedKeys].sort().join(", ") : "no arguments"
+      }.`
+    );
+  }
+
+  return input;
+}
+
 export function optionalEnum<T extends string>(
   input: Record<string, unknown>,
   key: string,
@@ -65,7 +94,17 @@ export function optionalInt(
 ): number {
   const value = input[key];
   if (value === undefined || value === null || value === "") return fallback;
-  const parsed = typeof value === "number" ? value : Number(value);
+
+  // Only numbers and digit strings. `Number(true)` is 1 and `Number([])` is
+  // 0, so coercing whatever arrives would quietly accept values the tool
+  // never meant to allow.
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^-?\d+$/.test(value.trim())
+        ? Number(value)
+        : NaN;
+
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
     throw new ToolValidationError(
       `'${key}' must be a whole number between ${min} and ${max}.`
@@ -126,8 +165,10 @@ export interface PeriodInput {
  * (`getRange`/`customRange` in metrics.ts), so an answer about "this week"
  * covers exactly the week the Overview page shows.
  */
+export const PERIOD_KEYS = ["period", "startDate", "endDate"] as const;
+
 export function parsePeriod(raw: unknown): PeriodInput {
-  const input = asObject(raw);
+  const input = strictObject(raw, PERIOD_KEYS);
   const startDate = optionalDate(input, "startDate");
   const endDate = optionalDate(input, "endDate");
 

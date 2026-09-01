@@ -16,6 +16,23 @@
  */
 import { db } from "../admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { ToolAuthorizationError, ToolValidationError } from "./types";
+
+/**
+ * Conversation ids come from the client, and they are used to build a
+ * Firestore path. Anything outside this charset is refused rather than
+ * escaped: `doc("a/messages/b")` silently addresses a *different*
+ * document, so an unvalidated id is uncontrolled path construction.
+ */
+const CONVERSATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+export function assertValidConversationId(conversationId: string): void {
+  if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
+    throw new ToolValidationError(
+      "conversationId must be 1-128 characters of letters, numbers, hyphens or underscores."
+    );
+  }
+}
 
 export type MessageRole = "user" | "assistant" | "tool";
 
@@ -24,6 +41,56 @@ export interface StoredMessage {
   content: string;
   toolName?: string;
   createdAt: FirebaseFirestore.Timestamp;
+}
+
+function conversationRef(hotelId: string, conversationId: string) {
+  return db
+    .collection("hotels")
+    .doc(hotelId)
+    .collection("aiConversations")
+    .doc(conversationId);
+}
+
+/**
+ * Bind a conversation to the user who started it, and refuse anyone else.
+ *
+ * Without this, any signed-in user at a hotel could pass a colleague's
+ * conversationId and have that history replayed into their own turn — a
+ * leak inside the tenant boundary, which hotel-level scoping alone does
+ * not catch. The claim is transactional so two simultaneous first turns
+ * cannot both take ownership.
+ *
+ * Call this before reading or appending anything for a conversation.
+ */
+export async function claimConversation(params: {
+  hotelId: string;
+  conversationId: string;
+  userId: string;
+}): Promise<void> {
+  assertValidConversationId(params.conversationId);
+  const ref = conversationRef(params.hotelId, params.conversationId);
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+
+    if (!snap.exists) {
+      tx.set(ref, {
+        userId: params.userId,
+        hotelId: params.hotelId,
+        createdAt: FieldValue.serverTimestamp(),
+        lastMessageAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    if (snap.data()?.userId !== params.userId) {
+      // Same message the caller would get for a conversation that does not
+      // exist: whether someone else's id is real is not theirs to learn.
+      throw new ToolAuthorizationError("Conversation not found.");
+    }
+
+    tx.update(ref, { lastMessageAt: FieldValue.serverTimestamp() });
+  });
 }
 
 function messagesRef(hotelId: string, conversationId: string) {

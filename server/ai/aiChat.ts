@@ -23,6 +23,8 @@ import { adminApp } from "../admin";
 import { resolveToolContext } from "./contextManager";
 import { requireActiveAccount } from "./permissionGuard";
 import { handleTurn } from "./orchestrator";
+import { assertValidConversationId } from "./conversationManager";
+import { ToolAuthorizationError } from "./types";
 import type { AgentResponse } from "./types";
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -54,6 +56,16 @@ function validateRequest(raw: unknown): AiChatRequest {
   }
   if (typeof body.conversationId !== "string" || !body.conversationId.trim()) {
     throw new AiChatError(400, "'conversationId' is required.");
+  }
+  try {
+    // Refused here as well as in the Conversation Manager: this id becomes
+    // part of a Firestore path, so it is checked before it reaches one.
+    assertValidConversationId(body.conversationId);
+  } catch {
+    throw new AiChatError(
+      400,
+      "'conversationId' must be 1-128 characters of letters, numbers, hyphens or underscores."
+    );
   }
   if (body.message.length > MAX_MESSAGE_LENGTH) {
     throw new AiChatError(400, "'message' is too long.");
@@ -93,5 +105,12 @@ export async function handleAiChat(params: {
     throw new AiChatError(403, "This account is not yet linked to a hotel.");
   }
 
-  return handleTurn(ctx, message);
+  try {
+    return await handleTurn(ctx, message);
+  } catch (err) {
+    if (err instanceof ToolAuthorizationError) {
+      throw new AiChatError(403, err.message);
+    }
+    throw err;
+  }
 }
