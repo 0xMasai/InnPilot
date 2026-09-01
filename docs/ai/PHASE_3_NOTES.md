@@ -10,10 +10,12 @@ variables. No secrets, model ids, or endpoints are hard-coded anywhere.
 functions/src/ai/
   provider.ts              # AIProvider interface, config resolution, factory
   providers/
-    anthropic.ts           # the one implementation (only file importing an LLM SDK)
+    openai.ts              # the configured default (Responses API)
+    anthropic.ts           # second implementation, proves the seam
   orchestrator.ts          # now calls the provider; still no tools
-  gateway.ts               # binds the AI_API_KEY secret to the callable
-functions/.env.example     # documents every AI_* variable
+  gateway.ts               # Firebase callable adapter (see hosting note below)
+  ../admin.ts              # credentials that work off Google infrastructure
+functions/.env.example     # documents every AI_* and credential variable
 ```
 
 ### The interface
@@ -34,11 +36,12 @@ orchestrator now. It is never persisted or shown to a user.
 
 | Variable | Required | Default | Where it lives |
 |---|---|---|---|
-| `AI_PROVIDER` | no | `anthropic` | `functions/.env` |
-| `AI_MODEL` | no | provider default (`claude-opus-5`) | `functions/.env` |
-| `AI_MAX_TOKENS` | no | `4096` | `functions/.env` |
-| `AI_EFFORT` | no | `medium` | `functions/.env` |
-| `AI_API_KEY` | **yes** | — | Cloud Functions **secret** |
+| `AI_PROVIDER` | no | `openai` | host env |
+| `AI_MODEL` | no | provider default (`gpt-5.6`) | host env |
+| `AI_MAX_TOKENS` | no | `4096` | host env |
+| `AI_EFFORT` | no | `medium` | host env |
+| `AI_API_KEY` | **yes** | — | host **secret** store |
+| `FIREBASE_SERVICE_ACCOUNT` | off Google infra | ADC | host **secret** store |
 
 Bad values fail loudly at resolution (unknown provider, non-integer token
 cap, unknown effort) rather than silently falling back to a default.
@@ -55,15 +58,25 @@ cap, unknown effort) rather than silently falling back to a default.
   guarding against. Root `.gitignore` already ignores `.env` at any depth
   and `*.local`, so `functions/.env` and `functions/.env.local` are covered
   without a change.
-- **`AI_API_KEY` is a Firebase secret, bound in `gateway.ts`**
-  (`defineSecret` + `secrets: [aiApiKey]` on the callable), which is what
-  places it in `process.env` at runtime. `provider.ts` itself reads only
-  `process.env`, so it stays free of `firebase-functions` imports and is
-  testable with a plain env object (Phase 15).
-- **Provider chosen: Anthropic (`@anthropic-ai/sdk`), default model
-  `claude-opus-5`.** The repo had no prior LLM provider of any kind, and
-  Phase 1 deferred the choice to this phase. The default is overridable per
-  deployment via `AI_MODEL` without a code change.
+- **`AI_API_KEY` is read from `process.env` only.** `gateway.ts` still
+  binds it as a Firebase secret (`defineSecret`) for the Cloud Functions
+  adapter, but `provider.ts` imports nothing from `firebase-functions`, so
+  the same provider code runs unchanged on whichever host the gateway moves
+  to, and is testable with a plain env object (Phase 15).
+- **Provider chosen: OpenAI (`openai`, Responses API), default model
+  `gpt-5.6`** — your call, and the default the abstraction now ships with.
+  Anthropic stays registered as a second implementation: it costs one entry
+  in the factory map, and it is the evidence that the seam is real rather
+  than theoretical. Switching is one env var, no code change.
+- **`store: false` on every OpenAI request.** Hotel operational data is not
+  retained provider-side; conversation history stays in Firestore, where
+  the rest of the app's data already lives.
+- **Firebase Admin now accepts a service-account credential from
+  `FIREBASE_SERVICE_ACCOUNT`** (raw JSON or base64), falling back to
+  Application Default Credentials when it is absent. Required because a
+  non-Google host has no metadata server to authenticate against. This
+  amends Phase 2's `admin.ts`; flagging it as an amendment rather than
+  silently reopening a closed phase.
 - **Adaptive thinking + `effort` are on by default** (`AI_EFFORT=medium`),
   because V1's harder questions ("why is revenue lower this week?") are
   analysis over multiple tool results, not lookups. Deployments that want
@@ -93,27 +106,56 @@ cap, unknown effort) rather than silently falling back to a default.
 ## Validation
 
 - `functions`: `npx tsc --noEmit` clean; `npm run build` produces
-  `lib/ai/provider.js` and `lib/ai/providers/anthropic.js`.
-- Config resolution exercised against the built output: defaults, overrides
-  (case-insensitive provider/effort), memoization, cache rebuild on a
+  `lib/ai/provider.js` plus `lib/ai/providers/{openai,anthropic}.js`.
+- Config resolution exercised against the built output: defaults resolve to
+  openai/gpt-5.6, `AI_PROVIDER=anthropic` switches implementation,
+  `AI_MODEL` overrides the model, plus memoization, cache rebuild on a
   rotated key, and rejection of an unsupported provider, a negative token
-  cap, and an unknown effort value — all behave as documented above.
+  cap, and an unknown effort value.
+- Admin credential resolution exercised both ways with a locally generated
+  key: raw-JSON and base64 `FIREBASE_SERVICE_ACCOUNT` both initialize
+  against project `hotel-management-c183c`; a malformed value is rejected
+  with a message that does not echo the key.
 - `npm run lint` in `functions/` still cannot run: there is no
   `functions/eslint.config.js`, so ESLint falls back to the root config,
   whose plugins are not installed for this package. Pre-existing from
   Phase 2, not introduced here; worth fixing when the package gets its own
   test/lint setup in Phase 15.
 - Root app: untouched. No file outside `functions/` and `docs/ai/` changed.
-- No live API call was made — that needs a real `AI_API_KEY` and a Firebase
-  project, which this phase deliberately does not provision.
+- No live API call was made — that needs a real `AI_API_KEY` and a running
+  gateway, neither of which this phase provisions.
+
+## Hosting: the gateway is leaving Cloud Functions
+
+The project stays on the Spark plan, and Cloud Functions cannot deploy
+without Blaze — so the `aiChat` callable in `gateway.ts` has no runtime.
+Decision taken: the gateway moves to a generic serverless host, keeping the
+Admin SDK and the whole Phase 2 module structure, authenticating with the
+`firebase-adminsdk-fbsvc@hotel-management-c183c` service account.
+
+Everything under `src/ai/` is already host-neutral — only `gateway.ts`
+(`onCall`/`defineSecret`) is Firebase-specific. What that migration still
+needs, in a phase of its own:
+
+1. **A host.** Vercel or Netlify: both run real Node, which `firebase-admin`
+   requires. Cloudflare Workers is the one to avoid — it is not a Node
+   runtime, and the Admin SDK's gRPC Firestore client does not run there.
+2. **An HTTP adapter** replacing `onCall`: read the `Authorization: Bearer`
+   header, verify the Firebase ID token with `getAuth().verifyIdToken()`
+   (the callable did this implicitly), then call the same
+   `resolveToolContext` -> `requireActiveAccount` -> `handleTurn` chain.
+3. **CORS**, which callable functions handled for free.
+4. **`src/lib/aiClient.ts` (Phase 8)** pointing at the new URL with a bearer
+   token instead of `httpsCallable`.
 
 ## Risks / outstanding issues
 
-- **First real cost/latency surface.** Every `aiChat` call now hits a paid
+- **First real cost/latency surface.** Every gateway call now hits a paid
   API. There is no per-hotel rate limit or spend cap yet; worth deciding
   before Phase 8 puts a chat box in front of users.
-- **Deploying now requires the secret to exist** — `firebase deploy` will
-  prompt for `AI_API_KEY` if it has never been set for the project.
+- **The service-account key is a full rules bypass.** It must live only in
+  the host's secret store. The root `.gitignore` already blocks
+  `*serviceAccountKey*.json`, and nothing reads a key file from the repo.
 - Phase 1's two open questions still stand: the dual booking collections
   (`accomodation` vs `reservations`), which Phase 4 must resolve, and
   dropping housekeeping/maintenance tools from V1.
@@ -125,22 +167,25 @@ Implemented:
 - Provider-agnostic `AIProvider` interface plus message/tool/response types
 - Env-driven configuration (`AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY`,
   `AI_MAX_TOKENS`, `AI_EFFORT`) with validation and clear failure messages
-- Anthropic implementation (the only vendor-SDK file), with adaptive
-  thinking, effort, refusal fallback, and bounded timeout/retries
+- OpenAI implementation (Responses API, default `gpt-5.6`, `store: false`)
+  and an Anthropic implementation, selected by one env var
 - Orchestrator wired to the provider, with honest degradation on every
   failure path and a placeholder system prompt until Phase 7
-- `AI_API_KEY` bound to the callable as a Firebase secret
+- Firebase Admin credentials that work off Google infrastructure, for the
+  gateway's move to a non-Firebase host
 Files created:
 - functions/src/ai/provider.ts
+- functions/src/ai/providers/openai.ts
 - functions/src/ai/providers/anthropic.ts
 - functions/.env.example
 - docs/ai/PHASE_3_NOTES.md (this document)
 Files modified:
 - functions/src/ai/orchestrator.ts
 - functions/src/ai/gateway.ts
+- functions/src/admin.ts
 - functions/package.json (+ package-lock.json)
 Dependencies added:
-- @anthropic-ai/sdk (functions package only)
+- openai, @anthropic-ai/sdk (functions package only)
 Database changes:
 - none
 Tests:
@@ -152,7 +197,8 @@ Validation:
 - build: clean (`npm run build`)
 Risks / outstanding issues:
 - No rate limiting or spend cap on a now-billable endpoint
-- Deploy requires the AI_API_KEY secret to be set for the project
+- The gateway has no runtime until it is moved off Cloud Functions (Spark
+  plan); host not yet chosen — see "Hosting" above
 - Phase 1's dual-booking-collection decision still needs confirmation
   before Phase 4
 NEXT PHASE:

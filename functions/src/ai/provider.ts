@@ -7,20 +7,21 @@
  * and model are used is decided entirely by environment variables read at
  * runtime (see `functions/.env.example`):
  *
- *   AI_PROVIDER   which implementation to construct  (default: "anthropic")
+ *   AI_PROVIDER   which implementation to construct  (default: "openai")
  *   AI_MODEL      model id for that provider         (default: per-provider)
- *   AI_API_KEY    credential — a Cloud Functions secret, never a .env value
+ *   AI_API_KEY    credential — a host secret, never a committed value
  *   AI_MAX_TOKENS optional response cap              (default: 4096)
  *   AI_EFFORT     optional reasoning effort          (default: "medium")
  *
  * `AI_API_KEY` deliberately has no `VITE_` prefix: this repo's Vite
  * convention (`firebase.ts`) bundles `VITE_*` into public client JS, which
- * an LLM key must never be. It is bound to the callable as a Firebase
- * secret in `gateway.ts`, which is what puts it in `process.env` at
- * runtime.
+ * an LLM key must never be. It comes from the secret store of whatever
+ * host runs the gateway; this module only ever reads `process.env`, so it
+ * is host-agnostic and testable with a plain object.
  */
 
 import { createAnthropicProvider } from "./providers/anthropic";
+import { createOpenAIProvider } from "./providers/openai";
 
 /** Message roles this layer exchanges with a provider. */
 export type ProviderRole = "user" | "assistant";
@@ -119,10 +120,11 @@ export type ProviderFactory = (config: ProviderConfig) => AIProvider;
 
 /** Per-provider defaults, so `AI_MODEL` is optional in every environment. */
 const DEFAULT_MODELS: Record<string, string> = {
+  openai: "gpt-5.6",
   anthropic: "claude-opus-5",
 };
 
-const DEFAULT_PROVIDER = "anthropic";
+const DEFAULT_PROVIDER = "openai";
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_EFFORT: Effort = "medium";
 
@@ -156,7 +158,7 @@ export function resolveProviderConfig(env: Env = process.env): ProviderConfig {
   const apiKey = read(env, "AI_API_KEY");
   if (!apiKey) {
     throw new ProviderConfigurationError(
-      "AI_API_KEY is not set. Set it as a Cloud Functions secret: firebase functions:secrets:set AI_API_KEY"
+      "AI_API_KEY is not set. Provide it as a secret/environment variable on the host running the gateway."
     );
   }
 
@@ -190,6 +192,7 @@ export function resolveProviderConfig(env: Env = process.env): ProviderConfig {
  * no caller changes.
  */
 const FACTORIES: Record<string, ProviderFactory> = {
+  openai: (config) => createOpenAIProvider(config),
   anthropic: (config) => createAnthropicProvider(config),
 };
 
