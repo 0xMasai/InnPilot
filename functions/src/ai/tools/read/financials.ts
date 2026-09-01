@@ -13,7 +13,9 @@ import {
   isRevenueOrder,
   orderDate,
 } from "../../../../../src/lib/metrics";
-import type { ToolDefinition, ToolDeps } from "../../types";
+import type { ToolDeps } from "../../types";
+import { HOTEL_STAFF_ROLES, defineReadTool } from "../defineTool";
+import { cleanLabel } from "../sanitize";
 import {
   PERIOD_SCHEMA,
   describeRange,
@@ -21,8 +23,6 @@ import {
   validatePeriodInput,
   type PeriodInput,
 } from "../inputs";
-
-const ALL_STAFF = ["hotel_admin", "staff"] as const;
 
 /** Shared preamble so every result says where its numbers came from. */
 const SOURCE_NOTE =
@@ -34,13 +34,12 @@ async function metricsFor(input: PeriodInput, deps: ToolDeps) {
   return { range, metrics };
 }
 
-export const getOccupancy: ToolDefinition<PeriodInput> = {
+export const getOccupancy = defineReadTool<PeriodInput, unknown>({
   name: "get_occupancy",
   description:
     "Current room occupancy for the hotel: how many rooms are occupied, available, and the occupancy rate. Occupancy reflects live room status, not the selected period.",
   inputSchema: PERIOD_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validatePeriodInput,
   async handler(_ctx, input, deps) {
     const { metrics } = await metricsFor(input, deps);
@@ -60,15 +59,14 @@ export const getOccupancy: ToolDefinition<PeriodInput> = {
           : SOURCE_NOTE,
     };
   },
-};
+});
 
-export const getRevenue: ToolDefinition<PeriodInput> = {
+export const getRevenue = defineReadTool<PeriodInput, unknown>({
   name: "get_revenue",
   description:
     "Revenue for a period, broken down into accommodation, restaurant and conference, with total revenue, recorded expenses and net operating result. Use for any 'how much did we make' question.",
   inputSchema: PERIOD_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validatePeriodInput,
   async handler(_ctx, input, deps) {
     const { range, metrics } = await metricsFor(input, deps);
@@ -87,15 +85,14 @@ export const getRevenue: ToolDefinition<PeriodInput> = {
       note: SOURCE_NOTE,
     };
   },
-};
+});
 
-export const getExpenses: ToolDefinition<PeriodInput> = {
+export const getExpenses = defineReadTool<PeriodInput, unknown>({
   name: "get_expenses",
   description:
     "Recorded expenses for a period, with a breakdown by department. Only covers expenses entered into InnPilot.",
   inputSchema: PERIOD_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validatePeriodInput,
   async handler(_ctx, input, deps) {
     const range = resolveRange(input, deps.now);
@@ -108,7 +105,7 @@ export const getExpenses: ToolDefinition<PeriodInput> = {
     for (const expense of expenses) {
       if (!inRange(expenseDate(expense), range)) continue;
       const amount = Number(expense.amount) || 0;
-      const department = expense.department?.trim() || "Unspecified";
+      const department = cleanLabel(expense.department, "Unspecified");
       const bucket = byDepartment.get(department) ?? { count: 0, amount: 0 };
       bucket.count += 1;
       bucket.amount += amount;
@@ -129,15 +126,14 @@ export const getExpenses: ToolDefinition<PeriodInput> = {
       note: "Only expenses recorded in InnPilot are included.",
     };
   },
-};
+});
 
-export const getRestaurantSales: ToolDefinition<PeriodInput> = {
+export const getRestaurantSales = defineReadTool<PeriodInput, unknown>({
   name: "get_restaurant_sales",
   description:
     "Restaurant revenue and order count for a period, with a breakdown by menu category. Cancelled orders are excluded.",
   inputSchema: PERIOD_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validatePeriodInput,
   async handler(_ctx, input, deps) {
     const range = resolveRange(input, deps.now);
@@ -151,7 +147,7 @@ export const getRestaurantSales: ToolDefinition<PeriodInput> = {
       if (!isRevenueOrder(order)) continue;
       if (!inRange(orderDate(order), range)) continue;
       const amount = Number(order.price) || 0;
-      const category = order.category?.trim() || "Uncategorised";
+      const category = cleanLabel(order.category, "Uncategorised");
       const bucket = byCategory.get(category) ?? { count: 0, amount: 0 };
       bucket.count += 1;
       bucket.amount += amount;
@@ -171,15 +167,14 @@ export const getRestaurantSales: ToolDefinition<PeriodInput> = {
       note: "Cancelled orders generate no revenue and are excluded.",
     };
   },
-};
+});
 
-export const getConferenceRevenue: ToolDefinition<PeriodInput> = {
+export const getConferenceRevenue = defineReadTool<PeriodInput, unknown>({
   name: "get_conference_revenue",
   description:
     "Conference and events revenue for a period, with the number of bookings.",
   inputSchema: PERIOD_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validatePeriodInput,
   async handler(_ctx, input, deps) {
     const { range, metrics } = await metricsFor(input, deps);
@@ -191,4 +186,4 @@ export const getConferenceRevenue: ToolDefinition<PeriodInput> = {
       note: SOURCE_NOTE,
     };
   },
-};
+});

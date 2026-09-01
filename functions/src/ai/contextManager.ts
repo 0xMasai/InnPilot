@@ -13,7 +13,15 @@ import type { Role, ToolContext } from "./types";
 
 const VALID_ROLES: readonly Role[] = ["super_admin", "hotel_admin", "staff", "pending"];
 
-function coerceRole(value: unknown): Role {
+/**
+ * Anything that is not one of the four known roles becomes "pending", which
+ * has no access to any tool. A users/{uid} document carrying a role this
+ * code does not recognise — a typo, a legacy value, or a field written by
+ * something that should not have — must never be treated as permission.
+ *
+ * Exported for the Phase 5 privilege-escalation tests.
+ */
+export function coerceRole(value: unknown): Role {
   return VALID_ROLES.includes(value as Role) ? (value as Role) : "pending";
 }
 

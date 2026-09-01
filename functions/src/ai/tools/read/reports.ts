@@ -14,7 +14,8 @@
 import { computeMetrics, getRange, customRange } from "../../../../../src/lib/metrics";
 import { isSameDay, toPMSDate } from "../../../../../src/lib/pms";
 import type { DateRange } from "../../../../../src/lib/metrics";
-import type { ToolDefinition, ToolDeps } from "../../types";
+import type { ToolDeps } from "../../types";
+import { HOTEL_STAFF_ROLES, defineReadTool } from "../defineTool";
 import {
   DAY_SCHEMA,
   describeRange,
@@ -22,8 +23,6 @@ import {
   validateDayInput,
   type DayInput,
 } from "../inputs";
-
-const ALL_STAFF = ["hotel_admin", "staff"] as const;
 
 /**
  * The shared body of all three reports. `range` decides the money window;
@@ -93,13 +92,12 @@ async function buildReport(range: DateRange, anchor: Date, deps: ToolDeps) {
   };
 }
 
-export const generateDailyReport: ToolDefinition<DayInput> = {
+export const generateDailyReport = defineReadTool<DayInput, unknown>({
   name: "generate_daily_report",
   description:
     "Structured operational report for one day: revenue by stream, expenses, net operating result, occupancy, arrivals/departures/in-house, and outstanding balances. Defaults to today.",
   inputSchema: DAY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateDayInput,
   async handler(_ctx, input, deps) {
     const anchor = resolveDay(input, deps.now);
@@ -108,32 +106,30 @@ export const generateDailyReport: ToolDefinition<DayInput> = {
       : getRange("today", deps.now);
     return buildReport(range, anchor, deps);
   },
-};
+});
 
-export const generateWeeklyReport: ToolDefinition<DayInput> = {
+export const generateWeeklyReport = defineReadTool<DayInput, unknown>({
   name: "generate_weekly_report",
   description:
     "Structured operational report for a week (Monday to Sunday) containing the given date, defaulting to the current week. Same figures as the daily report, over a week.",
   inputSchema: DAY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateDayInput,
   async handler(_ctx, input, deps) {
     const anchor = resolveDay(input, deps.now);
     return buildReport(getRange("week", anchor), anchor, deps);
   },
-};
+});
 
-export const generateMonthlyReport: ToolDefinition<DayInput> = {
+export const generateMonthlyReport = defineReadTool<DayInput, unknown>({
   name: "generate_monthly_report",
   description:
     "Structured operational report for the calendar month containing the given date, defaulting to the current month. Same figures as the daily report, over a month.",
   inputSchema: DAY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateDayInput,
   async handler(_ctx, input, deps) {
     const anchor = resolveDay(input, deps.now);
     return buildReport(getRange("month", anchor), anchor, deps);
   },
-};
+});

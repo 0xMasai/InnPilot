@@ -13,10 +13,9 @@
 import { toPMSDate } from "../../../../../src/lib/pms";
 import { BOOKING_STATUSES, type BookingStatus } from "../../../../../src/lib/collections";
 import type { BookingDoc } from "../../data/hotelData";
-import type { ToolDefinition } from "../../types";
 import { ToolValidationError } from "../../types";
-
-const ALL_STAFF = ["hotel_admin", "staff"] as const;
+import { HOTEL_STAFF_ROLES, defineReadTool } from "../defineTool";
+import { cleanText } from "../sanitize";
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -114,26 +113,25 @@ function shortString(value: unknown, name: string): string | undefined {
 function detail(booking: BookingDoc) {
   return {
     id: booking.id,
-    reservationNumber: booking.reservationNumber ?? null,
-    guestName: booking.guestName ?? null,
-    roomNumber: booking.roomNumber ?? null,
-    roomType: booking.roomType ?? null,
+    reservationNumber: cleanText(booking.reservationNumber),
+    guestName: cleanText(booking.guestName),
+    roomNumber: cleanText(booking.roomNumber),
+    roomType: cleanText(booking.roomType),
     status: booking.status ?? null,
     checkIn: toPMSDate(booking.checkIn as never)?.toISOString() ?? null,
     checkOut: toPMSDate(booking.checkOut as never)?.toISOString() ?? null,
     paymentStatus: booking.paymentStatus ?? null,
     numberOfGuests: booking.numberOfGuests ?? null,
-    bookingSource: booking.bookingSource ?? null,
+    bookingSource: cleanText(booking.bookingSource),
   };
 }
 
-export const getReservations: ToolDefinition<ReservationQuery> = {
+export const getReservations = defineReadTool<ReservationQuery, unknown>({
   name: "get_reservations",
   description:
     "Look up reservations in the front-desk system, optionally filtered by status, guest name or room number. Returns the most recent check-in dates first.",
   inputSchema: RESERVATION_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput(raw) {
     const input = asObject(raw, ["status", "guestName", "roomNumber", "limit"]);
 
@@ -185,15 +183,14 @@ export const getReservations: ToolDefinition<ReservationQuery> = {
       source: "reservations (front-desk flow)",
     };
   },
-};
+});
 
-export const getUpcomingReservations: ToolDefinition<{ days: number; limit: number }> = {
+export const getUpcomingReservations = defineReadTool<{ days: number; limit: number }, unknown>({
   name: "get_upcoming_reservations",
   description:
     "Reservations arriving within the next N days (default 7), soonest first. Only active reservations (Confirmed or Checked In) are included.",
   inputSchema: UPCOMING_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput(raw) {
     const input = asObject(raw, ["days", "limit"]);
     return {
@@ -231,4 +228,4 @@ export const getUpcomingReservations: ToolDefinition<{ days: number; limit: numb
       source: "reservations (front-desk flow)",
     };
   },
-};
+});

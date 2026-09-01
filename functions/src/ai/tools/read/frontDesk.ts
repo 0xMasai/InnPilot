@@ -18,7 +18,8 @@
 import { isSameDay, toPMSDate } from "../../../../../src/lib/pms";
 import { ROOM_STATUSES } from "../../../../../src/lib/collections";
 import type { BookingDoc } from "../../data/hotelData";
-import type { ToolDefinition } from "../../types";
+import { HOTEL_STAFF_ROLES, defineReadTool } from "../defineTool";
+import { cleanText } from "../sanitize";
 import {
   DAY_SCHEMA,
   EMPTY_SCHEMA,
@@ -28,15 +29,13 @@ import {
   type DayInput,
 } from "../inputs";
 
-const ALL_STAFF = ["hotel_admin", "staff"] as const;
-
 /** Guest-facing summary of one reservation. Only operationally useful fields. */
 function summarise(booking: BookingDoc) {
   return {
     id: booking.id,
-    guestName: booking.guestName ?? null,
-    roomNumber: booking.roomNumber ?? null,
-    roomType: booking.roomType ?? null,
+    guestName: cleanText(booking.guestName),
+    roomNumber: cleanText(booking.roomNumber),
+    roomType: cleanText(booking.roomType),
     status: booking.status ?? null,
     checkIn: toPMSDate(booking.checkIn as never)?.toISOString() ?? null,
     checkOut: toPMSDate(booking.checkOut as never)?.toISOString() ?? null,
@@ -44,13 +43,12 @@ function summarise(booking: BookingDoc) {
   };
 }
 
-export const getCheckIns: ToolDefinition<DayInput> = {
+export const getCheckIns = defineReadTool<DayInput, unknown>({
   name: "get_check_ins",
   description:
     "Guests arriving (checking in) on a given day: confirmed reservations whose check-in date is that day. Defaults to today. Same definition as the Front Desk screen.",
   inputSchema: DAY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateDayInput,
   async handler(_ctx, input, deps) {
     const day = resolveDay(input, deps.now);
@@ -66,15 +64,14 @@ export const getCheckIns: ToolDefinition<DayInput> = {
       source: "reservations (front-desk flow)",
     };
   },
-};
+});
 
-export const getCheckOuts: ToolDefinition<DayInput> = {
+export const getCheckOuts = defineReadTool<DayInput, unknown>({
   name: "get_check_outs",
   description:
     "Guests departing (checking out) on a given day: checked-in reservations whose check-out date is that day. Defaults to today. Same definition as the Front Desk screen.",
   inputSchema: DAY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateDayInput,
   async handler(_ctx, input, deps) {
     const day = resolveDay(input, deps.now);
@@ -90,15 +87,14 @@ export const getCheckOuts: ToolDefinition<DayInput> = {
       source: "reservations (front-desk flow)",
     };
   },
-};
+});
 
-export const getRoomStatus: ToolDefinition<Record<string, never>> = {
+export const getRoomStatus = defineReadTool<Record<string, never>, unknown>({
   name: "get_room_status",
   description:
     "Live status of every room in the hotel (Available, Occupied, Cleaning, Maintenance, Out of Service), with counts per status and the list of rooms.",
   inputSchema: EMPTY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateNoInput,
   async handler(_ctx, _input, deps) {
     const rooms = await deps.data.rooms();
@@ -115,8 +111,8 @@ export const getRoomStatus: ToolDefinition<Record<string, never>> = {
       countsByStatus: counts,
       rooms: rooms
         .map((room) => ({
-          number: room.number ?? null,
-          type: room.type ?? null,
+          number: cleanText(room.number),
+          type: cleanText(room.type),
           status: room.status ?? null,
         }))
         .sort((a, b) => String(a.number).localeCompare(String(b.number), undefined, { numeric: true })),
@@ -126,15 +122,14 @@ export const getRoomStatus: ToolDefinition<Record<string, never>> = {
           : "Live room status as recorded in InnPilot.",
     };
   },
-};
+});
 
-export const getInHouseGuests: ToolDefinition<Record<string, never>> = {
+export const getInHouseGuests = defineReadTool<Record<string, never>, unknown>({
   name: "get_in_house_guests",
   description:
     "Guests currently in house (reservations with status 'Checked In'), plus the total unsettled balance across confirmed and in-house reservations. Same definition as the Front Desk screen.",
   inputSchema: EMPTY_SCHEMA,
-  allowedRoles: [...ALL_STAFF],
-  isWrite: false,
+  allowedRoles: [...HOTEL_STAFF_ROLES],
   validateInput: validateNoInput,
   async handler(_ctx, _input, deps) {
     const reservations = await deps.data.reservations();
@@ -156,4 +151,4 @@ export const getInHouseGuests: ToolDefinition<Record<string, never>> = {
       source: "reservations (front-desk flow)",
     };
   },
-};
+});
