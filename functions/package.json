@@ -16,6 +16,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
     "firebase-admin": "^13.0.0",
     "firebase-functions": "^6.0.0"
   },
