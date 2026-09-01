@@ -5,7 +5,10 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "outDir": "lib",
-    "rootDir": "src",
+    // ".." so the shared calculation modules under ../src/lib compile into
+    // this package alongside functions/src. Output therefore lands at
+    // lib/functions/src/** and lib/src/lib/** — see "main" in package.json.
+    "rootDir": "..",
     "sourceMap": true,
     "strict": true,
     "noUnusedLocals": true,
@@ -16,5 +19,14 @@
     "resolveJsonModule": true,
     "declaration": false
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    // Single source of truth for business math and collection names. These
+    // three are pure TypeScript with no framework or SDK imports, so the
+    // Admin SDK can use them unchanged and AI answers are computed by the
+    // exact same code as the dashboards. Do NOT add UI or client-SDK files.
+    "../src/lib/metrics.ts",
+    "../src/lib/pms.ts",
+    "../src/lib/collections.ts"
+  ]
 }

@@ -16,7 +16,6 @@
  *   Conference    → createdAt
  *   Expenses      → createdAt (fallback timestamp/date)
  */
-import { Timestamp } from "firebase/firestore";
 import type { BookingStatus } from "./collections";
 
 // ---------- Raw record shapes (as stored in Firestore) ----------
@@ -67,8 +66,12 @@ export interface RoomRecord {
 
 export const toDateSafe = (v: unknown): Date | null => {
   if (!v) return null;
-  if (v instanceof Timestamp) return v.toDate();
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  // Covers Firestore Timestamps from BOTH SDKs: the client `Timestamp` and
+  // the Admin SDK's, which are distinct classes but both expose toDate().
+  // Duck-typing rather than `instanceof Timestamp` is what lets the Cloud
+  // Functions AI tools reuse this module (see functions/src/ai/data/), so
+  // AI answers are computed by the same code as the dashboards.
   if (typeof v === "object" && typeof (v as any).toDate === "function") {
     try {
       const d = (v as any).toDate();
