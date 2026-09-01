@@ -9,7 +9,9 @@
  * provider exists.
  *
  * Once Phase 3/4 land, `handleTurn` is where: the provider is called with
- * the system prompt + tool schemas + recent history: any tool_use the
+ * the system prompt (built here, and only here, via
+ * `systemPrompt.ts#buildSystemPrompt` — no other module defines agent
+ * instructions) + tool schemas + recent history: any tool_use the
  * model requests is checked by permissionGuard, then executed via
  * toolRegistry; write tools go through confirmationManager first; every
  * tool call (and the final reply) is recorded via conversationManager and
