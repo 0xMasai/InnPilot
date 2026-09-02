@@ -10,6 +10,26 @@
 export type Role = "super_admin" | "hotel_admin" | "staff" | "pending";
 
 /**
+ * How the user's message reached the gateway (Phase 14).
+ *
+ * Descriptive only. It is asserted by the client, so it is not a fact the
+ * server can verify and it must never be read by anything that decides
+ * what may happen: not the Permission Guard, not the Confirmation
+ * Manager, not the prompt, not tool selection. The agent is
+ * input-source-agnostic by construction — `handleTurn` is never told the
+ * mode, so there is no parameter for a future change to branch on.
+ *
+ * What it is for: the audit trail and the operator's logs. "Which changes
+ * to this hotel were asked for by voice" is a question an admin can
+ * reasonably ask after the fact, and nothing else in either record
+ * answers it.
+ */
+export type InputMode = "text" | "voice";
+
+/** The only values a request may carry, checked at the gateway. */
+export const INPUT_MODES: readonly InputMode[] = ["text", "voice"];
+
+/**
  * The entity kinds the existing audit trail already knows about
  * (`src/lib/audit.ts`, rendered by `src/AuditLog.tsx`). Kept identical so
  * an AI-made change appears in that page beside the ones people made,

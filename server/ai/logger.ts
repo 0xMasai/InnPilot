@@ -49,7 +49,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type { Role, ToolCallRecord, ToolFailureKind } from "./types";
+import type { InputMode, Role, ToolCallRecord, ToolFailureKind } from "./types";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
@@ -132,6 +132,8 @@ interface RequestLogScope {
   hotelId?: string;
   role?: Role;
   conversationId?: string;
+  /** How the client says the message arrived (Phase 14). Default "text". */
+  inputMode: InputMode;
   outcome: RequestOutcome;
   toolCalls: number;
   providerCalls: number;
@@ -204,6 +206,7 @@ export function withRequestLog<T>(fn: (requestId: string) => Promise<T>): Promis
   const scope: RequestLogScope = {
     requestId: newRequestId(),
     startedAt: Date.now(),
+    inputMode: "text",
     outcome: "unknown",
     toolCalls: 0,
     providerCalls: 0,
@@ -253,6 +256,31 @@ export function noteRequestIdentity(identity: {
 }
 
 /**
+ * Record how the client says this request arrived (Phase 14).
+ *
+ * It rides on the request scope rather than being threaded as a parameter,
+ * and that is the point rather than a convenience: `handleTurn` never
+ * receives it, so no code that decides what the agent does can read it.
+ * The two readers that legitimately want it — this module's start/finish
+ * lines and the Phase 12 audit row — both already run inside the scope.
+ *
+ * It is a client assertion, not a verified fact. It is recorded, and
+ * nothing is granted on the strength of it.
+ */
+export function noteInputMode(mode: InputMode): void {
+  const scope = storage.getStore();
+  if (scope) scope.inputMode = mode;
+}
+
+/**
+ * The current request's input mode, defaulting to `text` — including
+ * outside a request, where a caller (a script) had no mode to declare.
+ */
+export function currentInputMode(): InputMode {
+  return storage.getStore()?.inputMode ?? "text";
+}
+
+/**
  * Record how this turn ended. Called at each of the orchestrator's exits,
  * so `ai.request.finish` states the outcome rather than leaving one to be
  * inferred from the absence of an error.
@@ -268,11 +296,19 @@ export function noteCachedReads(count: number): void {
   if (scope) scope.cachedReads = count;
 }
 
+/**
+ * `inputMode` is on this line and on the finish line, not in the prefix
+ * every line carries. The prefix holds what makes a line *attributable*
+ * when it is the only line — an `ai.error` raised before the start line
+ * still needs its user and hotel. Input mode is per-request and constant,
+ * so `requestId` joins it onto everything else, and paying for it on all
+ * ten lines of a turn buys nothing.
+ */
 export function logRequestStart(fields: {
   messageLength: number;
   answeringConfirmation: boolean;
 }): void {
-  emit("info", "ai.request.start", fields);
+  emit("info", "ai.request.start", { ...fields, inputMode: currentInputMode() });
 }
 
 /**
@@ -298,6 +334,7 @@ export function logRequestFinish(): void {
 
   const durationMs = Date.now() - scope.startedAt;
   emit("info", "ai.request.finish", {
+    inputMode: scope.inputMode,
     outcome: scope.outcome,
     ok: SUCCESSFUL_OUTCOMES.has(scope.outcome),
     durationMs,

@@ -4,7 +4,8 @@
  * Every tool call the agent makes is recorded — reads, refusals, proposed
  * writes and executed ones. The brief's list (timestamp, user, property,
  * conversation, tool, input, result/status, action type, confirmation
- * status, success) is what one row holds.
+ * status, success) is what one row holds, plus — from Phase 14 — how the
+ * request arrived, typed or spoken.
  *
  * ## Two destinations, on purpose
  *
@@ -42,7 +43,7 @@
 import { db } from "../admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { describeResultShape, fingerprint, redactToolInput } from "./redact";
-import { logInternalError, logProblem } from "./logger";
+import { currentInputMode, logInternalError, logProblem } from "./logger";
 import type { AiAuditTarget, ToolContext, ToolFailureKind } from "./types";
 
 const AI_AUDIT_COLLECTION = "aiAuditLog";
@@ -155,6 +156,11 @@ function aiAuditRow(ctx: ToolContext, event: AiAuditEvent): Record<string, unkno
     userRole: ctx.role,
     conversationId: ctx.conversationId,
     source: "ai",
+    // How the request arrived (Phase 14), as the client described it.
+    // Read from the request scope rather than passed down, so no code
+    // between here and the gateway has to carry a value it must not act
+    // on. It is a client assertion — descriptive, and never a permission.
+    inputMode: currentInputMode(),
 
     actionType: event.actionType,
     toolName: event.toolName,
@@ -176,8 +182,9 @@ function aiAuditRow(ctx: ToolContext, event: AiAuditEvent): Record<string, unkno
 
 /**
  * The same change, in the shape `src/AuditLog.tsx` already renders.
- * `source: "ai"` is the only added field — additive, so every existing
- * reader keeps working, and the page can mark the row as the agent's.
+ * `source: "ai"` and `inputMode` are the only added fields — additive, so
+ * every existing reader keeps working, and the page can mark the row as
+ * the agent's, and say whether the change was asked for out loud.
  */
 function operationalRow(
   ctx: ToolContext,
@@ -195,6 +202,7 @@ function operationalRow(
     at: FieldValue.serverTimestamp(),
 
     source: "ai",
+    inputMode: currentInputMode(),
     conversationId: ctx.conversationId,
     toolName: event.toolName,
   };

@@ -15,6 +15,12 @@
  *   4. Require an active, hotel-linked account (Permission Guard).
  *   5. Hand off to the Orchestrator.
  *
+ * Phase 14 adds one field to the request — `inputMode`, saying whether the
+ * message was typed or spoken. It is validated here, attached to the
+ * request scope, and never passed on: the Orchestrator's signature is
+ * unchanged, so the agent cannot behave differently for a spoken question
+ * than for a typed one. See `noteInputMode`.
+ *
  * It is also where a request gets its log scope (Phase 13): the id every
  * line of this request carries, and the one line at the end that says how
  * it went. That id goes back to the caller too — on the response and in
@@ -30,14 +36,15 @@ import { resolveToolContext } from "./contextManager";
 import { requireActiveAccount } from "./permissionGuard";
 import { handleTurn } from "./orchestrator";
 import { assertValidConversationId } from "./conversationManager";
-import { ToolAuthorizationError } from "./types";
-import type { AgentResponse } from "./types";
+import { INPUT_MODES, ToolAuthorizationError } from "./types";
+import type { AgentResponse, InputMode } from "./types";
 import {
   currentRequestId,
   logInternalError,
   logRequestFinish,
   logRequestRejected,
   logRequestStart,
+  noteInputMode,
   noteRequestIdentity,
   withRequestLog,
 } from "./logger";
@@ -75,6 +82,16 @@ export class AiChatError extends Error {
 export interface AiChatRequest {
   message: string;
   conversationId: string;
+  /**
+   * How the client says the message was produced — typed, or spoken into
+   * the microphone and transcribed in the browser (Phase 14).
+   *
+   * Recorded, never acted on. It reaches the audit trail and the log and
+   * stops there: the Orchestrator is not told it, so no reply, tool
+   * choice, permission or confirmation can depend on it. A client that
+   * lies about it has misdescribed one row and gained nothing.
+   */
+  inputMode?: InputMode;
   /**
    * Present when the user is answering a confirmation prompt (Phase 10).
    *
@@ -127,7 +144,28 @@ function validateRequest(raw: unknown): AiChatRequest {
     confirmationId = body.confirmationId;
   }
 
-  return { message: body.message, conversationId: body.conversationId, confirmationId };
+  // A closed vocabulary, refused rather than coerced: silently mapping an
+  // unrecognised value to "text" would put a wrong answer in the audit
+  // trail, and the trail is the whole reason the field exists. Refusing
+  // also keeps it from becoming a free-text field that reaches storage.
+  let inputMode: InputMode = "text";
+  if (body.inputMode !== undefined && body.inputMode !== null) {
+    if (!INPUT_MODES.includes(body.inputMode as InputMode)) {
+      throw new AiChatError(
+        400,
+        `'inputMode' must be one of: ${INPUT_MODES.join(", ")}.`,
+        "invalid_request"
+      );
+    }
+    inputMode = body.inputMode as InputMode;
+  }
+
+  return {
+    message: body.message,
+    conversationId: body.conversationId,
+    confirmationId,
+    inputMode,
+  };
 }
 
 /**
@@ -201,9 +239,12 @@ async function runRequest(params: {
   // Attributable from here on, even if the request never gets any further.
   noteRequestIdentity({ userId: uid });
 
-  const { message, conversationId, confirmationId } = validateRequest(params.body);
+  const { message, conversationId, confirmationId, inputMode } = validateRequest(params.body);
 
   noteRequestIdentity({ conversationId });
+  // Onto the request scope, which is where it ends. `handleTurn` below is
+  // called with exactly the arguments it was called with before Phase 14.
+  noteInputMode(inputMode ?? "text");
 
   const ctx = await resolveToolContext(uid, conversationId);
   noteRequestIdentity({ hotelId: ctx.hotelId, role: ctx.role });

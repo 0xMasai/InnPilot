@@ -29,6 +29,16 @@ export interface ToolCallRecord {
   reusedEarlierResult?: boolean;
 }
 
+/**
+ * How the message was produced (Phase 14). Mirrors `InputMode` in
+ * `server/ai/types.ts`.
+ *
+ * The server records it and acts on none of it: an agent that answered a
+ * spoken question differently from a typed one would be two agents to
+ * test, and only one of them would be the one the audit trail describes.
+ */
+export type InputMode = "text" | "voice";
+
 /** Mirrors `AgentResponse` in `server/ai/types.ts`. */
 export interface AgentResponse {
   conversationId: string;
@@ -106,6 +116,11 @@ export async function askInnPilot(params: {
    * authorises, and this passes it back untouched.
    */
   confirmationId?: string;
+  /**
+   * Whether the user typed this or spoke it. Defaults to `text` server
+   * side when omitted, so a caller with nothing to say says nothing.
+   */
+  inputMode?: InputMode;
   signal?: AbortSignal;
 }): Promise<AgentResponse> {
   const user = auth.currentUser;
@@ -130,6 +145,11 @@ export async function askInnPilot(params: {
         message: params.message,
         conversationId: params.conversationId,
         ...(params.confirmationId ? { confirmationId: params.confirmationId } : {}),
+        // Only sent when it is not the default: the gateway refuses an
+        // unrecognised value, so an omitted field is the safer silence.
+        ...(params.inputMode && params.inputMode !== "text"
+          ? { inputMode: params.inputMode }
+          : {}),
       }),
       signal: params.signal,
     });
