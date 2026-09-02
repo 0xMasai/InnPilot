@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { onSnapshot, orderBy, query, limit } from "firebase/firestore";
 import { hotelCollection } from "./lib/hotelScope";
 import { useAuth } from "./auth/AuthProvider";
-import { Search, ShieldCheck, BedDouble, Utensils, Briefcase, Wallet, User, DoorOpen } from "lucide-react";
+import { Search, ShieldCheck, BedDouble, Utensils, Briefcase, Wallet, User, DoorOpen, Sparkles } from "lucide-react";
 import { COLLECTIONS } from "./lib/collections";
 import { toDateSafe } from "./lib/metrics";
 import type { AuditEntity } from "./lib/audit";
@@ -19,7 +19,15 @@ interface AuditRow {
   userEmail: string;
   userId: string;
   at: unknown;
+  /**
+   * "ai" on entries the assistant wrote after a user confirmed the change
+   * (server/ai/auditLogger.ts). Absent on everything the UI writes, which
+   * is why the filter below reads it as "staff" rather than assuming.
+   */
+  source?: string;
 }
+
+type SourceFilter = "All" | "staff" | "ai";
 
 const entityIcon: Record<AuditEntity, ReactNode> = {
   booking: <BedDouble size={15} />,
@@ -47,6 +55,7 @@ export default function AuditLogDashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterEntity, setFilterEntity] = useState<"All" | AuditEntity>("All");
+  const [filterSource, setFilterSource] = useState<SourceFilter>("All");
 
   useEffect(() => {
     if (!hotelId) return;
@@ -66,14 +75,17 @@ export default function AuditLogDashboard() {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       const matchesEntity = filterEntity === "All" || r.entity === filterEntity;
+      const matchesSource =
+        filterSource === "All" ||
+        (filterSource === "ai" ? r.source === "ai" : r.source !== "ai");
       const matchesSearch =
         !q ||
         r.action.toLowerCase().includes(q) ||
         r.details.toLowerCase().includes(q) ||
         (r.userEmail || "").toLowerCase().includes(q);
-      return matchesEntity && matchesSearch;
+      return matchesEntity && matchesSource && matchesSearch;
     });
-  }, [rows, search, filterEntity]);
+  }, [rows, search, filterEntity, filterSource]);
 
   return (
     <div className="space-y-6">
@@ -113,6 +125,16 @@ export default function AuditLogDashboard() {
             <option value="expense">Expenses</option>
             <option value="user">Users</option>
           </select>
+          <select
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value as SourceFilter)}
+            className="select lg:w-56"
+            aria-label="Source"
+          >
+            <option value="All">All sources</option>
+            <option value="staff">Done in InnPilot</option>
+            <option value="ai">Done via Ask InnPilot</option>
+          </select>
         </div>
         <p className="mt-3 text-sm muted">
           Showing <strong className="text-slate-700">{filtered.length}</strong> of the latest{" "}
@@ -149,7 +171,19 @@ export default function AuditLogDashboard() {
                       <td className="text-slate-500 whitespace-nowrap">
                         {at ? at.toLocaleString() : "…"}
                       </td>
-                      <td className="text-slate-700">{r.userEmail || r.userId}</td>
+                      <td className="text-slate-700">
+                        <div className="flex flex-col gap-1">
+                          <span>{r.userEmail || r.userId}</span>
+                          {r.source === "ai" && (
+                            <span className="badge badge-plain badge-info w-fit">
+                              <span className="inline-flex items-center gap-1">
+                                <Sparkles size={12} />
+                                Ask InnPilot
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="font-medium text-slate-800">{r.action}</td>
                       <td>
                         <span className={`badge ${entityBadge[r.entity] ?? "badge-neutral"}`}>

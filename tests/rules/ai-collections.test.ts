@@ -12,16 +12,32 @@
  * typed, and a pending write-action is the token that authorises a change.
  * Neither should be readable or forgeable from a browser.
  *
+ * `aiAuditLog` (Phase 12) is the deliberate exception, and the third block
+ * below is what makes the exception explicit rather than accidental: the
+ * hotel's admin may read it, because a trail nobody can review is not
+ * oversight, and its contents are redacted at the point of writing so that
+ * it can be read. Nobody may write one from a browser — an entry a client
+ * could forge is not a record of what the agent did.
+ *
  * Requires the Firestore emulator (see tests/README.md).
  */
 import { readFileSync } from "node:fs";
 import {
   assertFails,
+  assertSucceeds,
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 
 const PROJECT_ID = "hotel-ms-ai-rules-test";
 const HOTEL_A = "hotel-a";
@@ -77,6 +93,14 @@ beforeEach(async () => {
       userId: "admin-a",
       toolName: "update_room_status",
       consumedAt: null,
+    });
+    await setDoc(doc(db, "hotels", HOTEL_A, "aiAuditLog", "entry-1"), {
+      userId: "admin-a",
+      hotelId: HOTEL_A,
+      toolName: "get_occupancy",
+      actionType: "read",
+      status: "ok",
+      source: "ai",
     });
   });
 });
@@ -166,6 +190,70 @@ describe("aiPendingActions cannot be read or forged from a client", () => {
         { consumedAt: new Date() },
         { merge: true }
       )
+    );
+  });
+});
+
+describe("aiAuditLog is readable by the hotel's admin and writable by nobody", () => {
+  it("lets the hotel's admin read the agent's trail", async () => {
+    await assertSucceeds(
+      getDoc(doc(as("admin-a"), "hotels", HOTEL_A, "aiAuditLog", "entry-1"))
+    );
+  });
+
+  // Same rule as auditLog itself: the trail is an oversight tool, and
+  // staff reviewing their own recorded actions is not what it is for.
+  it("denies staff at the same hotel", async () => {
+    await assertFails(
+      getDoc(doc(as("staff-a"), "hotels", HOTEL_A, "aiAuditLog", "entry-1"))
+    );
+  });
+
+  it("denies an admin from another hotel", async () => {
+    await assertFails(
+      getDoc(doc(as("admin-b"), "hotels", HOTEL_A, "aiAuditLog", "entry-1"))
+    );
+  });
+
+  it("denies unauthenticated access", async () => {
+    await assertFails(
+      getDoc(
+        doc(
+          testEnv.unauthenticatedContext().firestore(),
+          "hotels",
+          HOTEL_A,
+          "aiAuditLog",
+          "entry-1"
+        )
+      )
+    );
+  });
+
+  // Unlike auditLog, not even staff may create here: every row in this
+  // collection is written by the server, so one a browser could add would
+  // be a fabricated account of something the agent never did.
+  it("denies a client creating an entry", async () => {
+    await assertFails(
+      setDoc(doc(as("admin-a"), "hotels", HOTEL_A, "aiAuditLog", "forged"), {
+        userId: "admin-a",
+        hotelId: HOTEL_A,
+        toolName: "update_room_status",
+        source: "ai",
+      })
+    );
+  });
+
+  it("denies editing an entry", async () => {
+    await assertFails(
+      updateDoc(doc(as("admin-a"), "hotels", HOTEL_A, "aiAuditLog", "entry-1"), {
+        status: "denied",
+      })
+    );
+  });
+
+  it("denies deleting an entry", async () => {
+    await assertFails(
+      deleteDoc(doc(as("admin-a"), "hotels", HOTEL_A, "aiAuditLog", "entry-1"))
     );
   });
 });

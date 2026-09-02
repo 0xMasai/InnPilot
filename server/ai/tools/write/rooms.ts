@@ -30,6 +30,21 @@ export interface UpdateRoomStatusInput {
 }
 
 /**
+ * What the handler reports back. `id` is here for the audit trail
+ * (Phase 12): the number is what a person recognises, but the document id
+ * is what identifies the record after someone renumbers a room.
+ */
+export interface UpdateRoomStatusOutput {
+  changed: boolean;
+  id: string;
+  roomNumber: string | undefined;
+  status: RoomStatus;
+  previousStatus?: RoomStatus | null;
+  note?: string;
+  confirmedByReadBack?: boolean;
+}
+
+/**
  * Find the one room a reference names.
  *
  * Refuses rather than guesses. Two rooms numbered "204" is a data problem
@@ -65,7 +80,7 @@ async function resolveRoom(
   return matches[0];
 }
 
-export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, unknown> = {
+export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, UpdateRoomStatusOutput> = {
   name: "update_room_status",
   description:
     "Change one room's housekeeping status. Requires the user to confirm " +
@@ -134,6 +149,7 @@ export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, unknown> = 
     if (previousStatus === input.status) {
       return {
         changed: false,
+        id: room.id,
         roomNumber: room.number,
         status: input.status,
         note: "Already set to that status; nothing was written.",
@@ -148,10 +164,26 @@ export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, unknown> = 
 
     return {
       changed: true,
+      id: room.id,
       roomNumber: room.number,
       previousStatus,
       status: stored?.status ?? input.status,
       confirmedByReadBack: stored?.status === input.status,
     };
   },
+
+  /**
+   * The audit line, in the wording `setRoomStatus()` in
+   * `src/lib/roomService.ts` already uses ("204: Available → Cleaning"), so
+   * the two sit together in the audit page and read as the same event with
+   * different actors.
+   */
+  audit: (input, output) => ({
+    entity: "room",
+    entityId: output.id,
+    action: "Room status changed",
+    details: `${output.roomNumber ?? input.roomNumber}: ${
+      output.previousStatus ?? "no status"
+    } → ${output.status}`,
+  }),
 };

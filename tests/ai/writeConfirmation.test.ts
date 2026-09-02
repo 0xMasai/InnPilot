@@ -24,6 +24,12 @@ vi.mock("../../server/ai/conversationManager", () => ({
 
 vi.mock("../../server/admin", () => ({ adminApp: {}, db: {} }));
 
+// Phase 12's audit writes are exercised in auditLogging.test.ts; here they
+// would just be Firestore calls against a stub db.
+vi.mock("../../server/ai/auditLogger", () => ({
+  recordAiActions: async () => undefined,
+}));
+
 /** Every write that reached the data layer, in order. */
 const writes: { collection: string; docId: string; fields: Record<string, unknown> }[] = [];
 

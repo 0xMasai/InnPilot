@@ -10,6 +10,30 @@
 export type Role = "super_admin" | "hotel_admin" | "staff" | "pending";
 
 /**
+ * The entity kinds the existing audit trail already knows about
+ * (`src/lib/audit.ts`, rendered by `src/AuditLog.tsx`). Kept identical so
+ * an AI-made change appears in that page beside the ones people made,
+ * rather than in a parallel vocabulary nobody's UI understands.
+ */
+export type AuditEntity = "booking" | "room" | "order" | "event" | "expense" | "user";
+
+/**
+ * What a write tool actually changed, described by the tool itself.
+ *
+ * Built from the resolved document, so `entityId` is a stable Firestore id
+ * and `details` is written from identifiers (room number, reservation
+ * reference) rather than from the human reference the model happened to
+ * use — which may be a guest's name.
+ */
+export interface AiAuditTarget {
+  entity: AuditEntity;
+  entityId: string | null;
+  /** Reads in the audit page beside "Room status changed" from the UI. */
+  action: string;
+  details: string;
+}
+
+/**
  * Server-derived identity + authorization context for a single AI request.
  *
  * This is built once per request by the Context Manager from the verified
@@ -55,6 +79,16 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
    * record was meant.
    */
   summarize?: (ctx: ToolContext, input: TInput) => Promise<string>;
+  /**
+   * Required on write tools, unused on reads: what the completed change
+   * should say in the audit trail (Phase 12).
+   *
+   * Derived from the tool's own output — the record it resolved and wrote —
+   * so the trail names the document that changed rather than the reference
+   * the model used to find it. Must not include guest names or any other
+   * personal data; identifiers only.
+   */
+  audit?: (input: TInput, output: TOutput) => AiAuditTarget;
 }
 
 /**
@@ -70,12 +104,39 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type RegisteredTool = ToolDefinition<any, any>;
 
+/**
+ * Every way a tool call can fail to do what was asked. Closed on purpose:
+ * a new failure path has to be named here before it can be recorded, which
+ * is what keeps the audit trail's vocabulary stable enough to query.
+ */
+export type ToolFailureKind =
+  | "unknown_tool"
+  | "not_permitted"
+  | "invalid_input"
+  | "handler_failed"
+  | "budget_exhausted"
+  | "target_unresolved"
+  | "summary_failed"
+  | "not_confirmable"
+  | "second_write_in_turn"
+  | "confirmation_invalid";
+
 export interface ToolCallRecord {
   toolName: string;
   input: unknown;
   output?: unknown;
   status: "ok" | "error" | "confirmation_required" | "denied";
   errorMessage?: string;
+  /**
+   * Why a call failed, as a fixed vocabulary rather than prose.
+   *
+   * `errorMessage` is written for the model to read and relay, so it
+   * quotes the request back ("'Ada' matches 2 reservations: ...") and can
+   * therefore carry guest names. The audit trail stores this instead: the
+   * same information for an auditor, none of the personal data. See
+   * `server/ai/redact.ts`.
+   */
+  errorKind?: ToolFailureKind;
   durationMs: number;
   /**
    * True when the model asked for a call it had already made this turn and

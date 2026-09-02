@@ -16,14 +16,25 @@
  * carrying the confirmation id this server issued is what executes it. The
  * model proposes, and never performs.
  *
- * Still deliberately absent: audit logging of AI actions (Phase 12) and
- * structured logs (Phase 13).
+ * Phase 12 adds the audit trail. Every call the model makes — answered,
+ * refused, proposed or executed — is recorded before the turn returns, and
+ * an executed write is additionally recorded in the operational audit log
+ * the rest of InnPilot writes to. See `auditLogger.ts`.
+ *
+ * Still deliberately absent: structured logs (Phase 13).
  *
  * The honesty rule from the brief governs every failure path: if a tool
  * fails, the model is told it failed and must say so. Nothing here lets an
  * unanswerable question become an invented answer.
  */
-import type { AgentResponse, ToolCallRecord, ToolContext, RegisteredTool } from "./types";
+import type {
+  AgentResponse,
+  AiAuditTarget,
+  ToolCallRecord,
+  ToolContext,
+  ToolFailureKind,
+  RegisteredTool,
+} from "./types";
 import { ToolAuthorizationError, ToolValidationError } from "./types";
 import {
   appendMessage,
@@ -36,6 +47,8 @@ import { registerTools } from "./tools";
 import { buildSystemPrompt } from "./systemPrompt";
 import { fetchHotelName } from "./tools/dataAccess";
 import { assertCanCallTool } from "./permissionGuard";
+import { recordAiActions } from "./auditLogger";
+import type { AiAuditEvent, ConfirmationStatus } from "./auditLogger";
 import {
   ProviderConfigurationError,
   ProviderRequestError,
@@ -132,6 +145,7 @@ async function executeToolCall(
 
   const fail = (
     status: ToolCallRecord["status"],
+    kind: ToolFailureKind,
     message: string
   ): ExecutedTool => ({
     turn: {
@@ -145,13 +159,14 @@ async function executeToolCall(
       input: call.input,
       status,
       errorMessage: message,
+      errorKind: kind,
       durationMs: Date.now() - started,
     },
   });
 
   const tool = getTool(call.name);
   if (!tool) {
-    return fail("error", `No such tool: '${call.name}'.`);
+    return fail("error", "unknown_tool", `No such tool: '${call.name}'.`);
   }
 
   try {
@@ -161,7 +176,7 @@ async function executeToolCall(
       err instanceof ToolAuthorizationError
         ? err.message
         : "You are not permitted to use this tool.";
-    return fail("denied", message);
+    return fail("denied", "not_permitted", message);
   }
 
   let input: unknown;
@@ -170,7 +185,7 @@ async function executeToolCall(
   } catch (err) {
     const message =
       err instanceof ToolValidationError ? err.message : "Invalid tool input.";
-    return fail("error", message);
+    return fail("error", "invalid_input", message);
   }
 
   // A write is proposed, never executed here. The model asking for one is
@@ -201,7 +216,11 @@ async function executeToolCall(
     console.error(`Tool '${call.name}' failed:`, err);
     // The message may carry Firestore detail; tell the model the shape of
     // the failure, not its contents.
-    return fail("error", `The '${call.name}' lookup failed and returned no data.`);
+    return fail(
+      "error",
+      "handler_failed",
+      `The '${call.name}' lookup failed and returned no data.`
+    );
   }
 }
 
@@ -256,7 +275,10 @@ async function proposeWrite(params: {
     const message =
       "Another change is already awaiting the user's confirmation. Ask for one change at a time: " +
       "tell the user about the pending one, and raise this after they answer.";
-    return result({ error: message }, { status: "error", errorMessage: message });
+    return result(
+      { error: message },
+      { status: "error", errorMessage: message, errorKind: "second_write_in_turn" }
+    );
   }
 
   // A write tool with no `summarize` cannot describe what it would do, so
@@ -265,7 +287,10 @@ async function proposeWrite(params: {
   if (!tool.summarize) {
     console.error(`Write tool '${tool.name}' has no summarize(); refusing to propose it.`);
     const message = `The '${call.name}' action is not available.`;
-    return result({ error: message }, { status: "error", errorMessage: message });
+    return result(
+      { error: message },
+      { status: "error", errorMessage: message, errorKind: "not_confirmable" }
+    );
   }
 
   let summary: string;
@@ -282,7 +307,15 @@ async function proposeWrite(params: {
     if (!(err instanceof ToolValidationError)) {
       console.error(`Write tool '${call.name}' failed to summarize:`, err);
     }
-    return result({ error: message }, { status: "error", errorMessage: message });
+    return result(
+      { error: message },
+      {
+        status: "error",
+        errorMessage: message,
+        errorKind:
+          err instanceof ToolValidationError ? "target_unresolved" : "summary_failed",
+      }
+    );
   }
 
   const confirmationId = await createPendingAction({
@@ -329,23 +362,24 @@ async function proposeWrite(params: {
 async function executeConfirmed(
   ctx: ToolContext,
   action: { toolName: string; input: unknown }
-): Promise<{ reply: string; record: ToolCallRecord }> {
+): Promise<ConfirmedWrite> {
   const started = Date.now();
   const tool = getTool(action.toolName);
 
-  const failed = (message: string): { reply: string; record: ToolCallRecord } => ({
+  const failed = (kind: ToolFailureKind, message: string): ConfirmedWrite => ({
     reply: message,
     record: {
       toolName: action.toolName,
       input: action.input,
       status: "error",
       errorMessage: message,
+      errorKind: kind,
       durationMs: Date.now() - started,
     },
   });
 
   if (!tool || !tool.isWrite) {
-    return failed("That action is no longer available, so nothing was changed.");
+    return failed("unknown_tool", "That action is no longer available, so nothing was changed.");
   }
 
   try {
@@ -362,6 +396,7 @@ async function executeConfirmed(
         input: action.input,
         status: "denied",
         errorMessage: message,
+        errorKind: "not_permitted",
         durationMs: Date.now() - started,
       },
     };
@@ -381,11 +416,75 @@ async function executeConfirmed(
         status: "ok",
         durationMs: Date.now() - started,
       },
+      target: auditTarget(tool, action.input, output),
     };
   } catch (err) {
     console.error(`Confirmed write '${action.toolName}' failed:`, err);
-    return failed("That change could not be saved, so nothing was changed. Please try again.");
+    return failed(
+      "handler_failed",
+      "That change could not be saved, so nothing was changed. Please try again."
+    );
   }
+}
+
+/** What executing a confirmed write produced: the reply, and the trail. */
+interface ConfirmedWrite {
+  reply: string;
+  record: ToolCallRecord;
+  target?: AiAuditTarget;
+}
+
+/**
+ * Ask the tool to describe what it changed, for the operational audit log.
+ *
+ * A tool that throws here has still made its change, and the user must
+ * still be told so — the write is done and cannot be un-done by a logging
+ * problem. The row is lost, loudly, rather than the reply being turned
+ * into a failure that did not happen.
+ */
+function auditTarget(
+  tool: RegisteredTool,
+  input: unknown,
+  output: unknown
+): AiAuditTarget | undefined {
+  if (!tool.audit) return undefined;
+  try {
+    return tool.audit(input, output);
+  } catch (err) {
+    console.error(`Write tool '${tool.name}' failed to describe its audit entry:`, err);
+    return undefined;
+  }
+}
+
+/**
+ * One tool call, as the audit trail records it.
+ *
+ * Built from the same `ToolCallRecord` the UI is shown, so the trail and
+ * the user's view of "what the assistant did" cannot disagree. What the
+ * record does *not* carry into storage — the arguments' free text, the
+ * output's content, the error prose — is `redact.ts`'s decision, made in
+ * one place rather than at each call site.
+ */
+function auditEventFor(
+  record: ToolCallRecord,
+  extras: {
+    confirmationStatus: ConfirmationStatus;
+    confirmationId?: string;
+    target?: AiAuditTarget;
+  }
+): AiAuditEvent {
+  const tool = getTool(record.toolName);
+  return {
+    actionType: tool ? (tool.isWrite ? "write" : "read") : "unknown",
+    toolName: record.toolName,
+    input: record.input,
+    output: record.output,
+    status: record.status,
+    errorKind: record.errorKind,
+    durationMs: record.durationMs,
+    reusedEarlierResult: record.reusedEarlierResult,
+    ...extras,
+  };
 }
 
 /** Plain-language outcome of a confirmed write, from the tool's own output. */
@@ -442,6 +541,7 @@ function budgetExhausted(call: ProviderToolUse): ExecutedTool {
       input: call.input,
       status: "error",
       errorMessage: BUDGET_EXHAUSTED_MESSAGE,
+      errorKind: "budget_exhausted",
       durationMs: 0,
     },
   };
@@ -574,7 +674,24 @@ async function handleConfirmation(
   // One answer for every way an id can fail — wrong user, wrong
   // conversation, expired, already used, never existed. Distinguishing
   // them would tell a caller probing ids which of their guesses was close.
+  //
+  // The trail does not have to be as discreet as the reply: a refused
+  // confirmation is exactly the event someone reviewing an incident needs
+  // to see, so it is recorded even though no tool ran and the server does
+  // not know which one was meant.
   if (!action) {
+    await recordAiActions(ctx, [
+      {
+        actionType: "write",
+        toolName: null,
+        input: null,
+        status: "denied",
+        errorKind: "confirmation_invalid",
+        confirmationStatus: "rejected",
+        confirmationId,
+        durationMs: 0,
+      },
+    ]);
     return {
       reply:
         "That confirmation is no longer valid — it may have expired, or already been used. " +
@@ -583,8 +700,30 @@ async function handleConfirmation(
     };
   }
 
-  const { reply, record } = await executeConfirmed(ctx, action);
+  const { reply, record, target } = await executeConfirmed(ctx, action);
+
+  await recordAiActions(ctx, [
+    auditEventFor(record, { confirmationStatus: "confirmed", confirmationId, target }),
+  ]);
+
   return { reply, toolCalls: [record] };
+}
+
+/**
+ * Where a call sits in the confirmation flow, at the moment it is logged.
+ *
+ * A read never needed one. A proposed write is `pending` — and stays that
+ * way in the trail if the user never confirms, which is itself worth being
+ * able to see. A write that failed before it could be proposed never
+ * reached the question.
+ */
+function confirmationStatusOf(
+  record: ToolCallRecord,
+  proposed: boolean
+): ConfirmationStatus {
+  if (proposed) return "pending";
+  const tool = getTool(record.toolName);
+  return tool?.isWrite ? "not_reached" : "not_required";
 }
 
 async function runTurn(
@@ -681,8 +820,8 @@ async function runTurn(
         if (proposed && !pendingConfirmation) pendingConfirmation = proposed;
       }
 
-      await Promise.all(
-        executed.map(({ record }) =>
+      await Promise.all([
+        ...executed.map(({ record }) =>
           appendMessage({
             hotelId,
             conversationId: ctx.conversationId,
@@ -690,8 +829,20 @@ async function runTurn(
             toolName: record.toolName,
             content: `${record.status}${record.errorMessage ? `: ${record.errorMessage}` : ""}`,
           })
-        )
-      );
+        ),
+        // Awaited, not fired and forgotten: on a serverless host the
+        // response ends the invocation, and an unawaited write is one that
+        // may simply never happen.
+        recordAiActions(
+          ctx,
+          executed.map(({ record, proposed }) =>
+            auditEventFor(record, {
+              confirmationStatus: confirmationStatusOf(record, proposed !== undefined),
+              confirmationId: proposed?.confirmationId,
+            })
+          )
+        ),
+      ]);
     }
 
     return { reply: TOOL_LOOP_EXHAUSTED_REPLY, toolCalls, pendingConfirmation };
