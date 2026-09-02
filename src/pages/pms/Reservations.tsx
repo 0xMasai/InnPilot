@@ -3,7 +3,7 @@ import { getDocsFromServer, onSnapshot } from "firebase/firestore";
 import { CalendarPlus, Search } from "lucide-react";
 import { COLLECTIONS, ACTIVE_BOOKING_STATUSES, type BookingStatus } from "../../lib/collections";
 import { hotelCollection } from "../../lib/hotelScope";
-import { bookableRooms, toPMSDate, money } from "../../lib/pms";
+import { availableRoomsForStay, bookableRooms, toPMSDate, money } from "../../lib/pms";
 import { useAuth } from "../../auth/AuthProvider";
 import {
   createReservation as createReservationService,
@@ -200,7 +200,22 @@ export default function Reservations() {
     };
   }, [hotelId, role, user?.uid]);
 
-  const availableRooms = useMemo(() => bookableRooms(rooms), [rooms]);
+  /**
+   * Rooms offered for the dates in the form. Without both dates this is the
+   * whole bookable inventory; once a stay is chosen, rooms already held for
+   * any part of it — by a reservation or a legacy booking, made here, on the
+   * Accommodation page or by an agent — drop out, so the picker matches the
+   * rule createReservation() enforces on submit.
+   */
+  const availableRooms = useMemo(() => {
+    const bookable = bookableRooms(rooms);
+    const start = checkIn ? new Date(`${checkIn}T14:00:00`) : null;
+    const end = checkOut ? new Date(`${checkOut}T11:00:00`) : null;
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      return bookable;
+    }
+    return availableRoomsForStay(bookable, start, end, [...bookings, ...legacyBookings]);
+  }, [rooms, bookings, legacyBookings, checkIn, checkOut]);
 
   const updateReservationStatus = async (booking: Booking, status: BookingStatus) => {
     if (!hotelId || !booking.id || (role !== "hotel_admin" && role !== "staff")) return;

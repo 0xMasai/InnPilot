@@ -31,12 +31,12 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import {
   COLLECTIONS,
-  ACTIVE_BOOKING_STATUSES,
   ROOM_STATUSES,
   type BookingStatus,
   type RoomStatus,
 } from "./lib/collections";
 import { bookingStatusOf, getRange, inRange } from "./lib/metrics";
+import { bookingOverlaps, type PMSBookingLike } from "./lib/pms";
 import { logAction } from "./lib/audit";
 import { addRoom as addRoomService, setRoomStatus as setRoomStatusService } from "./lib/roomService";
 
@@ -89,9 +89,6 @@ const toDate = (v: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) =>
-  aStart < bEnd && bStart < aEnd;
-
 const statusBadge: Record<BookingStatus, string> = {
   Confirmed: "badge-info",
   "Checked In": "badge-success",
@@ -140,6 +137,13 @@ export default function AccommodationDashboard() {
   const [roomError, setRoomError] = useState("");
 
   const [bookings, setBookings] = useState<Booking[]>([]);
+  /**
+   * Reservations created by the PMS Reservations page or by a WebMCP agent.
+   * This page manages legacy accomodation records, so they are NOT listed or
+   * edited here — they are read purely so room availability and the
+   * double-booking guard below see every stay that holds this inventory.
+   */
+  const [reservations, setReservations] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -164,6 +168,14 @@ export default function AccommodationDashboard() {
       }
     );
 
+    const unsubReservations = onSnapshot(
+      hotelCollection(hotelId, COLLECTIONS.RESERVATIONS),
+      (snapshot) => {
+        setReservations(snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Booking) })));
+      },
+      (error) => console.error("Failed to load reservations:", error)
+    );
+
     const unsubRooms = onSnapshot(
       hotelCollection(hotelId, COLLECTIONS.ROOMS),
       (snapshot) => {
@@ -176,6 +188,7 @@ export default function AccommodationDashboard() {
 
     return () => {
       unsubBookings();
+      unsubReservations();
       unsubRooms();
     };
   }, [hotelId]);
@@ -191,16 +204,18 @@ export default function AccommodationDashboard() {
     }));
   };
 
+  /**
+   * Every stay that can hold a room, whichever screen or agent created it.
+   * Legacy accomodation records and PMS reservations both block inventory,
+   * so availability must be computed over the two collections together.
+   */
+  const stays = useMemo(() => [...bookings, ...reservations], [bookings, reservations]);
+
   /** Bookings that block the given room for the given period. */
   const findConflict = (roomNumber: string, checkIn: Date, checkOut: Date) =>
-    bookings.find((b) => {
-      if (String(b.roomNumber ?? "") !== roomNumber) return false;
-      if (!ACTIVE_BOOKING_STATUSES.includes(bookingStatus(b))) return false;
-      const s = toDate(b.checkIn);
-      const e = toDate(b.checkOut);
-      if (!s || !e) return false;
-      return overlaps(checkIn, checkOut, s, e);
-    });
+    bookingOverlaps(roomNumber, checkIn, checkOut, stays as PMSBookingLike[]) as
+      | Booking
+      | undefined;
 
   const roomIsUnavailableForDates = (room: Room) => {
     const checkIn = formData.checkIn instanceof Date ? formData.checkIn : null;
@@ -212,7 +227,7 @@ export default function AccommodationDashboard() {
 
   const availableRooms = useMemo(
     () => rooms.filter((room) => !roomIsUnavailableForDates(room)),
-    [rooms, bookings, formData.checkIn, formData.checkOut]
+    [rooms, stays, formData.checkIn, formData.checkOut]
   );
 
   // Submit booking

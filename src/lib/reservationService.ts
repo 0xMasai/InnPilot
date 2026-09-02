@@ -68,6 +68,9 @@ function toReservation(snapshot: QueryDocumentSnapshot): ReservationDoc {
     guestName: typeof data.guestName === "string" ? data.guestName : undefined,
     roomType: typeof data.roomType === "string" ? data.roomType : undefined,
     status: data.status as BookingStatus | undefined,
+    // Legacy accomodation documents carry occupancy here instead of `status`;
+    // dropping it would hide a real stay from the overlap check.
+    isOccupied: typeof data.isOccupied === "boolean" ? data.isOccupied : undefined,
     checkIn: data.checkIn as ReservationDoc["checkIn"],
     checkOut: data.checkOut as ReservationDoc["checkOut"],
   };
