@@ -225,15 +225,16 @@ hotel's data yet, and answer nothing about occupancy, revenue, bookings, guests
 or rooms. Do not improvise around this.`;
   }
 
-  // Names and kind only. Each tool's full description — including the Phase 6
-  // USE FOR / NOT FOR guidance — already reaches the model as a native tool
-  // schema on the same request; repeating it here cost ~1,300 tokens a turn
-  // and told the model nothing it was not already being shown. What the
-  // schemas do NOT establish is that the set is closed, which is this
-  // section's actual job.
+  // Name, kind and description. The description — including the Phase 6
+  // USE FOR / NOT FOR guidance — also reaches the model as a native tool
+  // schema, but restating it here keeps the closed list self-describing, so
+  // the model can pick between overlapping tools without cross-referencing
+  // the schemas. Whitespace is collapsed so a multi-line description cannot
+  // break the one-tool-per-line shape of the list.
   const lines = tools.map((tool) => {
     const kind = tool.isWrite ? "changes data — requires confirmation" : "read-only";
-    return `- ${tool.name} (${kind})`;
+    const description = tool.description.replace(/\s+/g, " ").trim();
+    return `- ${tool.name} (${kind}): ${description}`;
   });
 
   return `AVAILABLE TOOLS
@@ -241,7 +242,7 @@ or rooms. Do not improvise around this.`;
 ${lines.join("\n")}
 
 Each tool's full description, including when to use it and when not to, is
-attached to the tool itself — read it before choosing.
+also attached to the tool itself — read it before choosing.
 
 This list is complete. Any capability not listed here, you do not have.`;
 }
