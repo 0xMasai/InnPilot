@@ -17,8 +17,9 @@
  */
 import { db } from "../admin";
 import { FieldValue } from "firebase-admin/firestore";
+import type { AuditEntity } from "./types";
 
-export type AuditEntity = "booking" | "room" | "order" | "event" | "expense" | "user";
+export type { AuditEntity };
 
 export async function logAiAction(params: {
   hotelId: string;
@@ -33,29 +34,33 @@ export async function logAiAction(params: {
   confirmationStatus: "not_required" | "pending" | "confirmed";
   success: boolean;
 }): Promise<void> {
-  await db
-    .collection("hotels")
-    .doc(params.hotelId)
-    .collection("auditLog")
-    .add({
-      action: params.action,
-      entity: params.entity,
-      entityId: params.entityId,
-      details: params.details,
-      userId: params.userId,
-      userEmail: params.userEmail ?? "",
-      hotelId: params.hotelId,
-      at: FieldValue.serverTimestamp(),
-      // AI-specific, additive fields:
-      source: "ai",
-      conversationId: params.conversationId,
-      toolName: params.toolName,
-      confirmationStatus: params.confirmationStatus,
-      success: params.success,
-    })
-    .catch((err) => {
-      // Mirrors src/lib/audit.ts: never let a logging failure break the
-      // user's action.
-      console.error("AI audit log write failed:", err);
-    });
+  // Fire-and-forget by contract: a logging failure must never break the
+  // user's action. The whole body is guarded — not just the async write —
+  // because a misconfigured or absent Firestore handle would otherwise throw
+  // synchronously from `db.collection(...)` before the promise is even made.
+  try {
+    await db
+      .collection("hotels")
+      .doc(params.hotelId)
+      .collection("auditLog")
+      .add({
+        action: params.action,
+        entity: params.entity,
+        entityId: params.entityId,
+        details: params.details,
+        userId: params.userId,
+        userEmail: params.userEmail ?? "",
+        hotelId: params.hotelId,
+        at: FieldValue.serverTimestamp(),
+        // AI-specific, additive fields:
+        source: "ai",
+        conversationId: params.conversationId,
+        toolName: params.toolName,
+        confirmationStatus: params.confirmationStatus,
+        success: params.success,
+      });
+  } catch (err) {
+    // Mirrors src/lib/audit.ts: log and swallow.
+    console.error("AI audit log write failed:", err);
+  }
 }

@@ -10,6 +10,13 @@
 export type Role = "super_admin" | "hotel_admin" | "staff" | "pending";
 
 /**
+ * Entities the audit trail recognises. Kept in step with `AuditEntity` in
+ * `src/lib/audit.ts` (the client trail) and `server/ai/auditLogger.ts`, so
+ * an AI-written row renders on the same admin page as a UI-written one.
+ */
+export type AuditEntity = "booking" | "room" | "order" | "event" | "expense" | "user";
+
+/**
  * Server-derived identity + authorization context for a single AI request.
  *
  * This is built once per request by the Context Manager from the verified
@@ -41,6 +48,14 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   inputSchema: Record<string, unknown>;
   /** True for tools that change data — gated by the Confirmation Manager. */
   isWrite: boolean;
+  /**
+   * Which audit entity a successful call of this tool concerns. Required in
+   * spirit on write tools: the orchestrator records every confirmed write to
+   * the audit trail under this entity, and a write tool without one is
+   * logged under a generic fallback so an unmapped tool is still attributable
+   * rather than silently unaudited. Read tools omit it and are not audited.
+   */
+  auditEntity?: AuditEntity;
   validateInput: (raw: unknown) => TInput;
   handler: (ctx: ToolContext, input: TInput) => Promise<TOutput>;
   /**

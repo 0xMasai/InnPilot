@@ -106,6 +106,7 @@ export const updateReservationStatus: ToolDefinition<UpdateReservationStatusInpu
     "reservation, and cannot change dates, rates or guest details.",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: true,
+  auditEntity: "booking",
   inputSchema: {
     type: "object",
     properties: {
@@ -176,6 +177,7 @@ export const updateReservationStatus: ToolDefinition<UpdateReservationStatusInpu
     );
 
     return {
+      id: reservation.id,
       changed: true,
       reservation: describe(reservation),
       previousStatus,

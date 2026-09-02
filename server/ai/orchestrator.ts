@@ -16,8 +16,12 @@
  * carrying the confirmation id this server issued is what executes it. The
  * model proposes, and never performs.
  *
- * Still deliberately absent: audit logging of AI actions (Phase 12) and
- * structured logs (Phase 13).
+ * Every confirmed write is recorded to the hotel's append-only audit trail
+ * via the Audit Logger — one row per executed mutation (success, failure or
+ * denial), attributing it to the acting user and marking that confirmation
+ * was required and supplied. Read tools are not audited, matching the
+ * client WebMCP contract. Audit logging is fire-and-forget: it can never
+ * break or block the user's action.
  *
  * The honesty rule from the brief governs every failure path: if a tool
  * fails, the model is told it failed and must say so. Nothing here lets an
@@ -32,6 +36,7 @@ import {
 } from "./conversationManager";
 import { getTool, listTools } from "./toolRegistry";
 import { consumePendingAction, createPendingAction } from "./confirmationManager";
+import { logAiAction } from "./auditLogger";
 import { registerTools } from "./tools";
 import { buildSystemPrompt } from "./systemPrompt";
 import { fetchHotelName } from "./tools/dataAccess";
@@ -345,6 +350,9 @@ async function executeConfirmed(
   });
 
   if (!tool || !tool.isWrite) {
+    // No mutation was attempted against a real tool, so there is nothing to
+    // attribute — the id was stale or invalid, and consumePendingAction
+    // already spent it. Left unaudited on purpose.
     return failed("That action is no longer available, so nothing was changed.");
   }
 
@@ -355,6 +363,10 @@ async function executeConfirmed(
       err instanceof ToolAuthorizationError
         ? err.message
         : "You are not permitted to make this change.";
+    // A confirmed write refused at execution time (e.g. the user was demoted
+    // between proposing and confirming) is still an attempted mutation, and
+    // is recorded as a denied action rather than vanishing.
+    await auditConfirmedWrite(ctx, tool, action, { success: false, details: message });
     return {
       reply: `${message} Nothing was changed.`,
       record: {
@@ -369,11 +381,13 @@ async function executeConfirmed(
 
   try {
     const output = await tool.handler(ctx, action.input);
+    const reply = describeWriteResult(output);
+    await auditConfirmedWrite(ctx, tool, action, { success: true, output, details: reply });
     return {
       // Built from the tool's own result, not written by the model. The
       // model is not consulted on this turn at all, so it has no way to
       // report a success that did not happen.
-      reply: describeWriteResult(output),
+      reply,
       record: {
         toolName: action.toolName,
         input: action.input,
@@ -384,8 +398,51 @@ async function executeConfirmed(
     };
   } catch (err) {
     console.error(`Confirmed write '${action.toolName}' failed:`, err);
+    // The mutation was attempted and did not persist. Record the failure so
+    // the trail never implies a change the store did not accept.
+    await auditConfirmedWrite(ctx, tool, action, {
+      success: false,
+      details: "The write could not be saved.",
+    });
     return failed("That change could not be saved, so nothing was changed. Please try again.");
   }
+}
+
+/**
+ * Record one confirmed write to the hotel's audit trail.
+ *
+ * Fire-and-forget by contract (the logger swallows its own failures), so a
+ * broken audit subsystem can never block or fail a user's confirmed action.
+ * `entityId` is the resolved document id the tool returns in its output, so
+ * a row points at the exact record that changed. Reads never reach here.
+ */
+async function auditConfirmedWrite(
+  ctx: ToolContext,
+  tool: RegisteredTool,
+  action: { toolName: string; input: unknown },
+  outcome: { success: boolean; output?: unknown; details: string }
+): Promise<void> {
+  const output =
+    outcome.output && typeof outcome.output === "object"
+      ? (outcome.output as Record<string, unknown>)
+      : undefined;
+  const entityId = typeof output?.id === "string" ? output.id : null;
+
+  await logAiAction({
+    hotelId: ctx.hotelId as string,
+    userId: ctx.userId,
+    userEmail: ctx.userEmail,
+    conversationId: ctx.conversationId,
+    toolName: action.toolName,
+    entity: tool.auditEntity ?? "user",
+    entityId,
+    action: `ai:${action.toolName}`,
+    // Bounded: a summary line, never raw records or provider output.
+    details: outcome.details.slice(0, 500),
+    // Reaching here means a proposal was confirmed and the id consumed.
+    confirmationStatus: "confirmed",
+    success: outcome.success,
+  });
 }
 
 /** Plain-language outcome of a confirmed write, from the tool's own output. */

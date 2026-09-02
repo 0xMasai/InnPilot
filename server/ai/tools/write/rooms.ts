@@ -77,6 +77,7 @@ export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, unknown> = 
     "are different records (update_reservation_status).",
   allowedRoles: STAFF_AND_ADMIN,
   isWrite: true,
+  auditEntity: "room",
   inputSchema: {
     type: "object",
     properties: {
@@ -147,6 +148,7 @@ export const updateRoomStatus: ToolDefinition<UpdateRoomStatusInput, unknown> = 
     const stored = await readDocUncached<RoomDoc>(hotelId, COLLECTIONS.ROOMS, room.id);
 
     return {
+      id: room.id,
       changed: true,
       roomNumber: room.number,
       previousStatus,
