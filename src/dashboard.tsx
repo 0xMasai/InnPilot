@@ -19,6 +19,7 @@ import {
   Users,
   FileText,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tippy from "@tippyjs/react";
@@ -66,6 +67,7 @@ const baseNav: NavGroup[] = [
     label: "Operations",
     items: [
       { icon: <LayoutDashboard size={19} />, label: "Overview", to: "/dashboard", end: true },
+      { icon: <Sparkles size={19} />, label: "Ask InnPilot", to: "/dashboard/ask" },
       { icon: <BedDouble size={19} />, label: "Accommodation", to: "/dashboard/accommodation" },
       { icon: <Users size={19} />, label: "Guests", to: "/dashboard/guests" },
     ],
@@ -108,6 +110,7 @@ const adminNav: NavGroup[] = [
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Overview", subtitle: "Today's performance at a glance" },
+  "/dashboard/ask": { title: "Ask InnPilot", subtitle: "Answers drawn from this hotel's live records" },
   "/dashboard/accommodation": { title: "Accommodation", subtitle: "Rooms, bookings and availability" },
   "/dashboard/guests": { title: "Guests", subtitle: "Profiles, stay history and balances" },
   "/dashboard/restaurant": { title: "Restaurant", subtitle: "Orders and dining service" },
