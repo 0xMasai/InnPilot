@@ -120,6 +120,7 @@ declare module 'lucide-react' {
   export const Sliders: LucideIcon;
   export const SlidersHorizontal: LucideIcon;
   export const Sparkles: LucideIcon;
+  export const Square: LucideIcon;
   export const Star: LucideIcon;
   export const Sun: LucideIcon;
   export const Tag: LucideIcon;
@@ -134,6 +135,7 @@ declare module 'lucide-react' {
   export const UsersIcon: LucideIcon;
   export const Utensils: LucideIcon;
   export const Volume2: LucideIcon;
+  export const VolumeX: LucideIcon;
   export const Wallet: LucideIcon;
   export const Wine: LucideIcon;
   export const Wrench: LucideIcon;

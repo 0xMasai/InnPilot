@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "../../firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../../firebase";
 import { Eye, EyeOff, ShieldCheck, BedDouble, Utensils } from "lucide-react";
 import innpilotLogoDark from "../assets/brand/innpilot-logo-full-dark.png";
 import innpilotLogoLight from "../assets/brand/innpilot-logo-full-light.png";
@@ -17,139 +16,59 @@ const LoginPage = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
+  // Map Firebase's error codes to something a person can act on, so the
+  // form never surfaces a raw "auth/…" string or a stack trace.
+  const friendlyAuthError = (err: unknown): string => {
+    const code = (err as { code?: string })?.code ?? "";
+    switch (code) {
+      case "auth/invalid-email":
+        return "That doesn't look like a valid email address.";
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+      case "auth/invalid-login-credentials":
+        return "Incorrect email or password. Accounts are created by your Hotel Admin or Super Admin.";
+      case "auth/too-many-requests":
+        return "Too many attempts. Wait a moment and try again.";
+      case "auth/network-request-failed":
+        return "Network error. Check your connection and try again.";
+      default:
+        return "Couldn't sign you in. Please try again, or contact your administrator.";
+    }
+  };
+
+  // Sign in only. Provisioning (the users/{uid} document that grants a role
+  // and hotel) is done by a super_admin or the bootstrap script — never by
+  // the client — so this does not create accounts or fabricate a session.
+  // AuthProvider reads the real profile; ProtectedRoute routes on the real
+  // role (a not-yet-active account lands on the "account not active" screen).
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-
     try {
-      let userCredential;
-      try {
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
-      } catch (authErr: any) {
-        // If sign in fails due to user not found or invalid credential, provide option to create
-        if (
-          authErr?.code === "auth/user-not-found" ||
-          authErr?.code === "auth/invalid-credential" ||
-          authErr?.code === "auth/invalid-login-credentials"
-        ) {
-          try {
-            userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          } catch (createErr: any) {
-            throw authErr;
-          }
-        } else {
-          throw authErr;
-        }
-      }
-
-      const user = userCredential.user;
-
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          name: email.split("@")[0] || "Admin",
-          email: user.email,
-          role: "super_admin",
-          hotelId: "hotel_demo_01",
-          createdAt: serverTimestamp(),
-        });
-      }
-
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          uid: user.uid,
-          email: user.email,
-          name: email.split("@")[0] || "Administrator",
-          role: "hotel_admin",
-          hotelId: "hotel_demo_01",
-        })
-      );
-      window.dispatchEvent(new Event("innpilot-auth-change"));
+      await signInWithEmailAndPassword(auth, email.trim(), password);
       navigate("/dashboard");
     } catch (err: unknown) {
-      console.warn("Firebase Auth returned error, activating local development session:", err);
-      // Seamless local dev login fallback
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          uid: "dev-admin-uid",
-          email: email.trim() || "felixm@innpilot.com",
-          name: (email.trim() || "felixm").split("@")[0],
-          role: "hotel_admin",
-          hotelId: "hotel_demo_01",
-        })
-      );
-      window.dispatchEvent(new Event("innpilot-auth-change"));
-      navigate("/dashboard");
+      setError(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateTestAccount = async () => {
+  // Convenience for demos/judges: sign in with the demo credentials if the
+  // fields are blank. Still a real Firebase sign-in against a real,
+  // pre-provisioned account — no fallback session.
+  const handleDemoSignIn = async () => {
     setError("");
     setLoading(true);
-    const testEmail = email.trim() || "felixm@innpilot.com";
-    const testPass = password || "0777429854";
-
+    const demoEmail = email.trim() || "felixm@innpilot.com";
+    const demoPass = password || "0777429854";
     try {
-      let userCredential;
-      try {
-        userCredential = await signInWithEmailAndPassword(auth, testEmail, testPass);
-      } catch {
-        userCredential = await createUserWithEmailAndPassword(auth, testEmail, testPass);
-      }
-
-      const user = userCredential.user;
-      try {
-        const userRef = doc(db, "users", user.uid);
-        await setDoc(
-          userRef,
-          {
-            uid: user.uid,
-            name: "Felix Masai",
-            email: user.email,
-            role: "hotel_admin",
-            hotelId: "hotel_demo_01",
-            createdAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      } catch {
-        // Firestore rules might restrict writes in client mode
-      }
-
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          uid: user.uid,
-          name: "Felix Masai",
-          email: user.email,
-          role: "hotel_admin",
-          hotelId: "hotel_demo_01",
-        })
-      );
-      window.dispatchEvent(new Event("innpilot-auth-change"));
+      await signInWithEmailAndPassword(auth, demoEmail, demoPass);
       navigate("/dashboard");
-    } catch (err: any) {
-      console.warn("Dev mode fallback:", err);
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          uid: "dev-admin-uid",
-          name: "Felix Masai",
-          email: testEmail,
-          role: "hotel_admin",
-          hotelId: "hotel_demo_01",
-        })
-      );
-      window.dispatchEvent(new Event("innpilot-auth-change"));
-      navigate("/dashboard");
+    } catch (err: unknown) {
+      setError(friendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -255,10 +174,10 @@ const LoginPage = () => {
 
             <button
               type="button"
-              onClick={handleCreateTestAccount}
+              onClick={handleDemoSignIn}
               disabled={loading}
               className="btn btn-secondary w-full text-xs py-2"
-              title="Quickly authenticate or initialize as Demo Administrator"
+              title="Sign in with the pre-provisioned demo administrator account"
             >
               Sign in with Demo Admin
             </button>

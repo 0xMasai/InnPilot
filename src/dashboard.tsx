@@ -33,6 +33,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider";
 import { COLLECTIONS } from "./lib/collections";
 import { hotelCollection } from "./lib/hotelScope";
+import WebMCPStatusBadge from "./webmcp/WebMCPStatusBadge";
 
 type NotificationItem = {
   id: string;
@@ -561,6 +562,7 @@ const DashboardShell: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              <WebMCPStatusBadge />
               <div className="hidden sm:flex items-center bg-slate-50 px-3 h-9 rounded-lg border border-slate-200">
                 <Search size={16} className="text-slate-400" />
                 <input

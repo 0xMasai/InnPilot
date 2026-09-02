@@ -123,20 +123,18 @@ export async function askInnPilot(params: {
   inputMode?: InputMode;
   signal?: AbortSignal;
 }): Promise<AgentResponse> {
+  // A real, verifiable Firebase ID token is required. There is no dev/mock
+  // token: the gateway verifies this server-side, so a fabricated one would
+  // only ever be refused.
   const user = auth.currentUser;
-  let idToken = "dev-mock-token";
-
-  if (user) {
-    try {
-      idToken = await user.getIdToken();
-    } catch {
-      throw new AiClientError(401, "Your session has expired. Sign in again.");
-    }
-  } else {
-    const localUser = localStorage.getItem("user");
-    if (!localUser) {
-      throw new AiClientError(401, "Sign in required.");
-    }
+  if (!user) {
+    throw new AiClientError(401, "Sign in required.");
+  }
+  let idToken: string;
+  try {
+    idToken = await user.getIdToken();
+  } catch {
+    throw new AiClientError(401, "Your session has expired. Sign in again.");
   }
 
   let response: Response;
