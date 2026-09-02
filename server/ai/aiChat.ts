@@ -47,7 +47,20 @@ export class AiChatError extends Error {
 export interface AiChatRequest {
   message: string;
   conversationId: string;
+  /**
+   * Present when the user is answering a confirmation prompt (Phase 10).
+   *
+   * Carrying it is not authority to do anything: it is checked against a
+   * pending action bound to this hotel, user and conversation, which is
+   * single-use and expires. What it identifies — the tool and its
+   * arguments — is read from that stored action, never from this request,
+   * so a forged or replayed id can at worst be refused.
+   */
+  confirmationId?: string;
 }
+
+/** Same shape the Confirmation Manager issues: a Firestore document id. */
+const CONFIRMATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 function validateRequest(raw: unknown): AiChatRequest {
   const body = raw as Partial<AiChatRequest> | null;
@@ -70,7 +83,22 @@ function validateRequest(raw: unknown): AiChatRequest {
   if (body.message.length > MAX_MESSAGE_LENGTH) {
     throw new AiChatError(400, "'message' is too long.");
   }
-  return { message: body.message, conversationId: body.conversationId };
+
+  // Shape-checked here for the same reason as conversationId: it becomes
+  // part of a Firestore path. Whether it is a *valid* confirmation is the
+  // Confirmation Manager's question, not this one's.
+  let confirmationId: string | undefined;
+  if (body.confirmationId !== undefined && body.confirmationId !== null) {
+    if (
+      typeof body.confirmationId !== "string" ||
+      !CONFIRMATION_ID_PATTERN.test(body.confirmationId)
+    ) {
+      throw new AiChatError(400, "'confirmationId' is malformed.");
+    }
+    confirmationId = body.confirmationId;
+  }
+
+  return { message: body.message, conversationId: body.conversationId, confirmationId };
 }
 
 /**
@@ -95,7 +123,7 @@ export async function handleAiChat(params: {
     throw new AiChatError(401, "Sign in required.");
   }
 
-  const { message, conversationId } = validateRequest(params.body);
+  const { message, conversationId, confirmationId } = validateRequest(params.body);
 
   const ctx = await resolveToolContext(uid, conversationId);
 
@@ -106,7 +134,7 @@ export async function handleAiChat(params: {
   }
 
   try {
-    return await handleTurn(ctx, message);
+    return await handleTurn(ctx, message, confirmationId);
   } catch (err) {
     if (err instanceof ToolAuthorizationError) {
       throw new AiChatError(403, err.message);

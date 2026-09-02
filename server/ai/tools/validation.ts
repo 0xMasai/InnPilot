@@ -87,6 +87,47 @@ export function optionalString(
   return value;
 }
 
+/**
+ * A string the tool cannot proceed without.
+ *
+ * Write tools use this where reads use `optionalString`: a read with a
+ * missing filter still has a sensible answer, while a write with a missing
+ * target has none, and defaulting one would pick a record nobody named.
+ */
+export function requiredString(
+  input: Record<string, unknown>,
+  key: string,
+  maxLength = 100
+): string {
+  const value = optionalString(input, key, maxLength);
+  if (value === undefined) {
+    throw new ToolValidationError(`'${key}' is required.`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new ToolValidationError(`'${key}' is required.`);
+  }
+  return trimmed;
+}
+
+/** Like `optionalEnum`, but with no fallback to fall back to. */
+export function requiredEnum<T extends string>(
+  input: Record<string, unknown>,
+  key: string,
+  allowed: readonly T[]
+): T {
+  const value = input[key];
+  if (value === undefined || value === null || value === "") {
+    throw new ToolValidationError(
+      `'${key}' is required, and must be one of: ${allowed.join(", ")}.`
+    );
+  }
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new ToolValidationError(`'${key}' must be one of: ${allowed.join(", ")}.`);
+  }
+  return value as T;
+}
+
 export function optionalInt(
   input: Record<string, unknown>,
   key: string,

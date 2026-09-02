@@ -97,11 +97,11 @@ vi.mock("../../server/ai/provider", async (importOriginal) => {
 
 const { handleTurn } = await import("../../server/ai/orchestrator");
 const { listTools } = await import("../../server/ai/toolRegistry");
-const { registerReadTools } = await import("../../server/ai/tools/index");
+const { registerTools } = await import("../../server/ai/tools/index");
 
 // handleTurn registers on first use; the description checks below read the
 // registry directly, so populate it up front.
-registerReadTools();
+registerTools();
 
 const ctx: ToolContext = {
   userId: "uid-1",

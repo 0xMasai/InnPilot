@@ -27,6 +27,24 @@ const fetchMetricsInput = vi.fn(async () => ({
   rooms: [],
 }));
 
+/**
+ * The write path's own accessors (Phase 10). A write tool resolves its
+ * target by listing a collection, so it is parameterised by hotelId in
+ * exactly the way a read is, and belongs in the same assertion.
+ *
+ * `listDocsUncached` returns the one room and the one reservation the
+ * write tools look for, so their handlers get far enough to attempt the
+ * update — a tool that threw "no such room" before touching the data
+ * layer would pass this test without proving anything.
+ */
+const listDocsUncached = vi.fn(async (_hotelId: string, collection: string) =>
+  collection === "rooms"
+    ? [{ id: "room-1", number: "204", status: "Available" }]
+    : [{ id: "res-1", reservationId: "R-1", guestName: "Ada", status: "Confirmed" }]
+);
+const readDocUncached = vi.fn(async () => null);
+const updateDocFields = vi.fn(async () => undefined);
+
 // Mocking the data layer keeps these tests off the network and, more to
 // the point, lets them observe the hotelId each tool passes down.
 vi.mock("../../server/ai/tools/dataAccess", () => ({
@@ -39,14 +57,17 @@ vi.mock("../../server/ai/tools/dataAccess", () => ({
   fetchRoomsWithIds,
   fetchMetricsInput,
   fetchHotelName,
+  listDocsUncached,
+  readDocUncached,
+  updateDocFields,
 }));
 
-const { registerReadTools } = await import("../../server/ai/tools/index");
+const { registerTools } = await import("../../server/ai/tools/index");
 const { listTools } = await import("../../server/ai/toolRegistry");
 const { ToolValidationError } = await import("../../server/ai/types");
 import type { ToolContext } from "../../server/ai/types";
 
-registerReadTools();
+registerTools();
 
 const HOTEL_A = "hotel-a";
 const HOTEL_B = "hotel-b";
@@ -68,7 +89,20 @@ const allFetchers = [
   fetchReservations,
   fetchRoomsWithIds,
   fetchMetricsInput,
+  listDocsUncached,
+  readDocUncached,
+  updateDocFields,
 ];
+
+/**
+ * Arguments that let each tool actually run. Reads mostly take none; a
+ * write takes a target, and the point of this suite is where it looks for
+ * that target, not whether it can be called with nothing.
+ */
+const VALID_INPUT: Record<string, Record<string, unknown>> = {
+  update_room_status: { roomNumber: "204", status: "Cleaning" },
+  update_reservation_status: { reservation: "R-1", status: "Checked In" },
+};
 
 beforeEach(() => {
   for (const fetcher of allFetchers) fetcher.mockClear();
@@ -81,10 +115,14 @@ function hotelsQueried(): string[] {
   );
 }
 
-describe("every read tool is scoped to the caller's hotel", () => {
+describe("every tool is scoped to the caller's hotel", () => {
   for (const tool of listTools()) {
     it(`${tool.name} reads only from ctx.hotelId`, async () => {
-      await tool.handler(ctxFor(HOTEL_A), tool.validateInput({}));
+      const input = tool.validateInput(VALID_INPUT[tool.name] ?? {});
+      // A write tool's summarize() resolves the target too, and does it
+      // before any confirmation exists — so it is on the same boundary.
+      if (tool.summarize) await tool.summarize(ctxFor(HOTEL_A), input);
+      await tool.handler(ctxFor(HOTEL_A), input);
 
       const queried = hotelsQueried();
       expect(queried.length).toBeGreaterThan(0);
@@ -98,9 +136,11 @@ describe("the model cannot redirect a tool at another property", () => {
   for (const tool of listTools()) {
     it(`${tool.name} refuses a supplied hotelId`, () => {
       // Rejected as an undeclared argument — the request never runs at all.
-      expect(() => tool.validateInput({ hotelId: HOTEL_B })).toThrow(
-        ToolValidationError
-      );
+      // The tool's own valid arguments are included so the refusal is
+      // provably about `hotelId`, and not just about a missing target.
+      expect(() =>
+        tool.validateInput({ ...(VALID_INPUT[tool.name] ?? {}), hotelId: HOTEL_B })
+      ).toThrow(ToolValidationError);
     });
   }
 

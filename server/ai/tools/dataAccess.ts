@@ -126,3 +126,63 @@ export function fetchHotelName(hotelId: string): Promise<string | null> {
     }
   });
 }
+
+/**
+ * ---------------------------------------------------------------------
+ * Writes (Phase 10)
+ *
+ * Two rules separate these from everything above.
+ *
+ * **They never read through the request cache.** A write decides what to
+ * change from what it reads, and the cache exists to hold one snapshot
+ * still for the length of a turn — exactly the wrong property here. A
+ * confirmed write runs in a *later* request than the proposal that
+ * described it, and it must act on the record as it is now, not as it was
+ * when the model first looked.
+ *
+ * **They write the fields `firestore.rules` requires.** The Admin SDK
+ * bypasses those rules, so nothing forces the issue — but a document this
+ * writes must stay editable from the browser afterwards, and a room with
+ * no `hotelId` or a mismatched one is a document the app itself would be
+ * refused on update. Consistency with the UI's own writes is the point.
+ * ---------------------------------------------------------------------
+ */
+
+/** One document, read fresh. `null` when it does not exist. */
+export async function readDocUncached<T>(
+  hotelId: string,
+  collection: string,
+  docId: string
+): Promise<(T & { id: string }) | null> {
+  const snap = await hotelCollection(hotelId, collection).doc(docId).get();
+  if (!snap.exists) return null;
+  return { ...(snap.data() as T), id: snap.id };
+}
+
+/** A whole collection, read fresh — for resolving a target by name. */
+export async function listDocsUncached<T>(
+  hotelId: string,
+  collection: string
+): Promise<(T & { id: string })[]> {
+  const snap = await hotelCollection(hotelId, collection).get();
+  return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+}
+
+/**
+ * Update named fields on one document.
+ *
+ * `hotelId` is stamped alongside whatever is being changed so the document
+ * satisfies `tenantFieldOk()` on every later client update. It is written
+ * from the server-derived context, never from tool input — a tool cannot
+ * move a record into another hotel because it cannot name one.
+ */
+export async function updateDocFields(
+  hotelId: string,
+  collection: string,
+  docId: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  await hotelCollection(hotelId, collection)
+    .doc(docId)
+    .update({ ...fields, hotelId });
+}

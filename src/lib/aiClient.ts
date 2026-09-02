@@ -86,6 +86,12 @@ export function newConversationId(): string {
 export async function askInnPilot(params: {
   message: string;
   conversationId: string;
+  /**
+   * Set only when the user is approving a change the agent proposed. It is
+   * the id the server issued with that proposal; the server decides what it
+   * authorises, and this passes it back untouched.
+   */
+  confirmationId?: string;
   signal?: AbortSignal;
 }): Promise<AgentResponse> {
   const user = auth.currentUser;
@@ -109,6 +115,7 @@ export async function askInnPilot(params: {
       body: JSON.stringify({
         message: params.message,
         conversationId: params.conversationId,
+        ...(params.confirmationId ? { confirmationId: params.confirmationId } : {}),
       }),
       signal: params.signal,
     });

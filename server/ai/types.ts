@@ -43,6 +43,18 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   isWrite: boolean;
   validateInput: (raw: unknown) => TInput;
   handler: (ctx: ToolContext, input: TInput) => Promise<TOutput>;
+  /**
+   * Required on write tools, unused on reads: resolve the target and
+   * describe the change in one sentence a person can approve or reject.
+   *
+   * Runs *before* anything is written, and must not write. It is the only
+   * description of a pending action the user ever sees, so it is built
+   * from freshly read data here rather than from the model's account of
+   * what it intends to do. Throw `ToolValidationError` when the target
+   * cannot be resolved or is ambiguous — refusing beats guessing which
+   * record was meant.
+   */
+  summarize?: (ctx: ToolContext, input: TInput) => Promise<string>;
 }
 
 /**

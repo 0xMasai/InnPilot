@@ -132,15 +132,23 @@ function ToolCall({ call }: { call: ToolCallRecord }) {
  *
  * Rendered from the gateway's own `pendingConfirmation`, never inferred
  * from the reply text — the model cannot talk its way into a confirmation
- * panel. No registered tool can produce one yet, since every Phase 4 tool
- * is read-only, so this states plainly that confirming is unavailable
- * rather than offering a button that would do nothing. Phase 10 adds the
- * write tools and the confirm route it needs.
+ * panel, because the panel only exists when the server issued a pending
+ * action for a real registered write tool.
+ *
+ * The summary shown is the server's, built by reading the record as it
+ * currently stands, so what the user approves is what the tool resolved,
+ * not what the model said it would do.
  */
 function PendingConfirmation({
   confirmation,
+  state,
+  onConfirm,
+  onDismiss,
 }: {
   confirmation: NonNullable<AgentResponse["pendingConfirmation"]>;
+  state: "open" | "busy" | "answered";
+  onConfirm: () => void;
+  onDismiss: () => void;
 }) {
   return (
     <div className="mt-3 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-soft)] p-3">
@@ -151,14 +159,32 @@ function PendingConfirmation({
       <p className="mt-1 text-xs text-[var(--text-muted)]">
         Tool: <code className="font-mono">{confirmation.toolName}</code>
       </p>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <button type="button" className="btn btn-sm btn-primary" disabled>
-          Confirm
-        </button>
-        <span className="text-xs text-[var(--text-muted)]">
-          Write actions are not enabled in this build.
-        </span>
-      </div>
+      {state === "answered" ? (
+        <p className="mt-2.5 text-xs text-[var(--text-muted)]">
+          Answered. Ask again if you still want to make this change.
+        </p>
+      ) : (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={onConfirm}
+            disabled={state === "busy"}
+          >
+            {state === "busy" ? <Loader2 size={14} className="animate-spin" /> : null}
+            Confirm
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={onDismiss}
+            disabled={state === "busy"}
+          >
+            Cancel
+          </button>
+          <span className="text-xs text-[var(--text-muted)]">Expires after five minutes.</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -169,6 +195,12 @@ export default function AskInnPilot() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState(newConversationId);
+  /**
+   * Confirmation ids the user has already answered, so a panel cannot be
+   * clicked twice. The server enforces single use regardless — this only
+   * spares the user a refusal it already knows the answer to.
+   */
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
 
   const transcriptEnd = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -183,13 +215,19 @@ export default function AskInnPilot() {
   }, [entries, sending]);
 
   const send = useCallback(
-    async (question: string) => {
+    async (question: string, confirmationId?: string) => {
       const text = question.trim();
       if (!text || sending) return;
 
       setEntries((prev) => [...prev, { kind: "user", id: entryId(), text }]);
       setInput("");
       setSending(true);
+      // Answered the moment it is sent, not when the reply lands: the id is
+      // single-use server-side, so a second click could only ever be
+      // refused, and leaving the button live invites one.
+      if (confirmationId) {
+        setAnswered((prev) => new Set(prev).add(confirmationId));
+      }
 
       const controller = new AbortController();
       inFlight.current = controller;
@@ -198,6 +236,7 @@ export default function AskInnPilot() {
         const response = await askInnPilot({
           message: text,
           conversationId,
+          confirmationId,
           signal: controller.signal,
         });
         // The gateway owns the conversation id; adopt what it returns rather
@@ -234,6 +273,7 @@ export default function AskInnPilot() {
     inFlight.current = null;
     setSending(false);
     setEntries([]);
+    setAnswered(new Set());
     setConversationId(newConversationId());
     composer.current?.focus();
   }
@@ -357,7 +397,26 @@ export default function AskInnPilot() {
                     </div>
                   )}
                   {entry.pendingConfirmation && (
-                    <PendingConfirmation confirmation={entry.pendingConfirmation} />
+                    <PendingConfirmation
+                      confirmation={entry.pendingConfirmation}
+                      state={
+                        answered.has(entry.pendingConfirmation.confirmationId)
+                          ? sending
+                            ? "busy"
+                            : "answered"
+                          : "open"
+                      }
+                      onConfirm={() =>
+                        void send("Yes — go ahead.", entry.pendingConfirmation?.confirmationId)
+                      }
+                      onDismiss={() => {
+                        // No server call: a pending action nobody consumes
+                        // expires on its own in five minutes, so declining
+                        // is simply never confirming.
+                        const id = entry.pendingConfirmation?.confirmationId;
+                        if (id) setAnswered((prev) => new Set(prev).add(id));
+                      }}
+                    />
                   )}
                 </div>
               </div>
