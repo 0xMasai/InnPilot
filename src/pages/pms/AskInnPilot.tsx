@@ -51,12 +51,18 @@ type Entry =
     }
   | { kind: "error"; id: string; message: string; retry: string };
 
-/** Questions from the brief's definition of done — a usable starting point. */
+/** Hotel business questions covering all operational and strategic domains */
 const SUGGESTIONS = [
   "What's our occupancy today?",
   "How much did we make yesterday?",
   "How is the hotel doing today?",
   "Generate today's report.",
+  "How do I calculate RevPAR and GOPPAR?",
+  "What are the steps to handle a guest complaint?",
+  "How do I reduce OTA commissions?",
+  "What is the standard food cost percentage?",
+  "How should I schedule housekeeping shifts?",
+  "What should a Banquet Event Order include?",
 ];
 
 const STATUS_BADGE: Record<ToolCallRecord["status"], { className: string; label: string }> = {
@@ -301,8 +307,8 @@ export default function AskInnPilot() {
         <div>
           <h1 className="page-title">Ask InnPilot</h1>
           <p className="page-subtitle">
-            Answers come from this hotel's live records — every figure below was fetched, not
-            guessed.
+            Ask anything about hotel operations — live data, industry best practices, revenue
+            strategy, F&amp;B, housekeeping, MICE, HR, and more.
           </p>
         </div>
         {entries.length > 0 && (
@@ -320,13 +326,16 @@ export default function AskInnPilot() {
                 <Sparkles size={19} />
               </span>
               <div>
-                <p className="font-semibold text-[var(--text)]">Ask about your hotel</p>
+                <p className="font-semibold text-[var(--text)]">Ask anything about your hotel</p>
                 <p className="mt-1 max-w-md text-sm text-[var(--text-secondary)]">
-                  Occupancy, revenue, arrivals, expenses and reports — drawn from the same records
-                  the dashboards use.
+                  Live operational data, revenue strategy, F&amp;B, housekeeping, MICE, HR,
+                  compliance — InnPilot knows hotel business inside and out.
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-2">
+              <div
+                className="flex max-w-lg flex-wrap justify-center gap-2 overflow-y-auto"
+                style={{ maxHeight: "8rem" }}
+              >
                 {SUGGESTIONS.map((suggestion) => (
                   <button
                     key={suggestion}

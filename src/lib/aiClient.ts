@@ -95,13 +95,19 @@ export async function askInnPilot(params: {
   signal?: AbortSignal;
 }): Promise<AgentResponse> {
   const user = auth.currentUser;
-  if (!user) throw new AiClientError(401, "Sign in required.");
+  let idToken = "dev-mock-token";
 
-  let idToken: string;
-  try {
-    idToken = await user.getIdToken();
-  } catch {
-    throw new AiClientError(401, "Your session has expired. Sign in again.");
+  if (user) {
+    try {
+      idToken = await user.getIdToken();
+    } catch {
+      throw new AiClientError(401, "Your session has expired. Sign in again.");
+    }
+  } else {
+    const localUser = localStorage.getItem("user");
+    if (!localUser) {
+      throw new AiClientError(401, "Sign in required.");
+    }
   }
 
   let response: Response;

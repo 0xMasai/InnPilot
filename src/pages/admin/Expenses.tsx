@@ -13,7 +13,8 @@ import { useAuth } from "../../auth/AuthProvider";
 import "flatpickr/dist/flatpickr.min.css";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
-import { Printer, Pencil, PieChart, X } from "lucide-react";
+import { Printer, Pencil, PieChart, X, Download, FileSpreadsheet } from "lucide-react";
+import { exportToCsv, exportToPdf } from "../../lib/exportUtils";
 
 interface Expense {
   id: string;
@@ -208,6 +209,48 @@ export default function AdminExpensesDashboard() {
     printWindow.print();
   };
 
+  const handleExportCsv = () => {
+    exportToCsv({
+      title: "Expenses Report",
+      subtitle: "Operational spending across property",
+      filename: "expenses-report",
+      columns: ["Department", "Description", "Amount (UGX)", "Date", "Notes", "Created By"],
+      rows: filteredExpenses.map((exp) => [
+        exp.department || "-",
+        exp.description || "-",
+        exp.amount,
+        new Date(exp.date).toLocaleString(),
+        exp.notes || "-",
+        exp.createdByName || "Unknown",
+      ]),
+      kpis: [
+        { label: "Total Entries", value: String(filteredExpenses.length) },
+        { label: "Total Spending", value: `UGX ${filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toLocaleString()}` },
+      ],
+    });
+  };
+
+  const handleExportPdf = () => {
+    exportToPdf({
+      title: "Expenses Report",
+      subtitle: "Operational spending across property",
+      filename: "expenses-report",
+      columns: ["Department", "Description", "Amount (UGX)", "Date", "Notes", "Created By"],
+      rows: filteredExpenses.map((exp) => [
+        exp.department || "-",
+        exp.description || "-",
+        exp.amount.toLocaleString(),
+        new Date(exp.date).toLocaleString(),
+        exp.notes || "-",
+        exp.createdByName || "Unknown",
+      ]),
+      kpis: [
+        { label: "Total Entries", value: String(filteredExpenses.length) },
+        { label: "Total Spending", value: `UGX ${filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toLocaleString()}` },
+      ],
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="page-header">
@@ -215,9 +258,17 @@ export default function AdminExpensesDashboard() {
           <h1 className="page-title">Expenses</h1>
           <p className="page-subtitle">All operational spending across the property.</p>
         </div>
-        <button onClick={handlePrint} className="btn btn-secondary">
-          <Printer size={16} /> Print
-        </button>
+        <div className="flex gap-2">
+          <button onClick={handlePrint} className="btn btn-secondary">
+            <Printer size={16} /> Print
+          </button>
+          <button onClick={handleExportCsv} className="btn btn-secondary">
+            <FileSpreadsheet size={16} /> CSV
+          </button>
+          <button onClick={handleExportPdf} className="btn btn-primary">
+            <Download size={16} /> PDF
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

@@ -7,7 +7,8 @@ import {
 import { auth } from "../../../firebase";
 import { hotelCollection, hotelDoc } from "../../lib/hotelScope";
 import { useAuth } from "../../auth/AuthProvider";
-import { Printer, Search, Pencil, Utensils, X } from "lucide-react";
+import { Printer, Search, Pencil, Utensils, X, Download, FileSpreadsheet } from "lucide-react";
+import { exportToCsv, exportToPdf } from "../../lib/exportUtils";
 
 interface Order {
   id?: string;
@@ -150,6 +151,45 @@ export default function AdminRestaurantDashboard() {
   printWindow.print();
 };
 
+const handleExportCsv = () => {
+  exportToCsv({
+    title: "Restaurant Orders Report",
+    subtitle: "Dining and bar orders across property",
+    filename: "restaurant-orders",
+    columns: ["Client Name", "Category", "Order Details", "Price (UGX)", "Created Date"],
+    rows: filteredOrders.map((o) => [
+      o.clientName,
+      o.category,
+      o.orderDetails,
+      o.price,
+      new Date(o.createdAt).toLocaleString(),
+    ]),
+    kpis: [
+      { label: "Total Orders", value: String(filteredOrders.length) },
+      { label: "Total Sales", value: `UGX ${filteredOrders.reduce((sum, o) => sum + (Number(o.price) || 0), 0).toLocaleString()}` },
+    ],
+  });
+};
+
+const handleExportPdf = () => {
+  exportToPdf({
+    title: "Restaurant Orders Report",
+    subtitle: "Dining and bar orders across property",
+    filename: "restaurant-orders",
+    columns: ["Client Name", "Category", "Order Details", "Price (UGX)", "Created Date"],
+    rows: filteredOrders.map((o) => [
+      o.clientName,
+      o.category,
+      o.orderDetails,
+      o.price.toLocaleString(),
+      new Date(o.createdAt).toLocaleString(),
+    ]),
+    kpis: [
+      { label: "Total Orders", value: String(filteredOrders.length) },
+      { label: "Total Sales", value: `UGX ${filteredOrders.reduce((sum, o) => sum + (Number(o.price) || 0), 0).toLocaleString()}` },
+    ],
+  });
+};
 
   // const handleDelete = async (id: string | undefined) => {
   //   if (!id) return;
@@ -196,9 +236,17 @@ export default function AdminRestaurantDashboard() {
           <h1 className="page-title">Restaurant Orders</h1>
           <p className="page-subtitle">All dining orders across the property.</p>
         </div>
-        <button onClick={printRestaurantOrders} className="btn btn-secondary">
-          <Printer size={16} /> Print Orders
-        </button>
+        <div className="flex gap-2">
+          <button onClick={printRestaurantOrders} className="btn btn-secondary">
+            <Printer size={16} /> Print
+          </button>
+          <button onClick={handleExportCsv} className="btn btn-secondary">
+            <FileSpreadsheet size={16} /> CSV
+          </button>
+          <button onClick={handleExportPdf} className="btn btn-primary">
+            <Download size={16} /> PDF
+          </button>
+        </div>
       </div>
 
       {/* FILTERS */}

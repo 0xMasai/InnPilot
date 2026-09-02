@@ -15,7 +15,8 @@ import "flatpickr/dist/flatpickr.min.css";
 
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
-import { Printer, Search, Pencil, Briefcase, X } from "lucide-react";
+import { Printer, Search, Pencil, Briefcase, X, Download, FileSpreadsheet } from "lucide-react";
+import { exportToCsv, exportToPdf } from "../../lib/exportUtils";
 
 interface Booking {
   id?: string;
@@ -149,6 +150,52 @@ export default function AdminConferenceRoomDashboard() {
     printWindow.print();
   };
 
+  const handleExportCsv = () => {
+    exportToCsv({
+      title: "Conference Room Bookings Report",
+      subtitle: "Meeting rooms and events",
+      filename: "conference-bookings",
+      columns: ["Room", "Organizer Name", "Email", "Attendees", "Date & Time", "Duration (hrs)", "Price (UGX)", "Notes"],
+      rows: filteredBookings.map((b) => [
+        b.room,
+        b.organizerName,
+        b.email,
+        b.attendees,
+        new Date(b.dateTime).toLocaleString(),
+        b.durationHours,
+        b.price,
+        b.notes || "-",
+      ]),
+      kpis: [
+        { label: "Total Bookings", value: String(filteredBookings.length) },
+        { label: "Total Revenue", value: `UGX ${filteredBookings.reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}` },
+      ],
+    });
+  };
+
+  const handleExportPdf = () => {
+    exportToPdf({
+      title: "Conference Room Bookings Report",
+      subtitle: "Meeting rooms and events",
+      filename: "conference-bookings",
+      columns: ["Room", "Organizer Name", "Email", "Attendees", "Date & Time", "Duration (hrs)", "Price (UGX)", "Notes"],
+      rows: filteredBookings.map((b) => [
+        b.room,
+        b.organizerName,
+        b.email,
+        b.attendees,
+        new Date(b.dateTime).toLocaleString(),
+        b.durationHours,
+        b.price.toLocaleString(),
+        b.notes || "-",
+      ]),
+      kpis: [
+        { label: "Total Bookings", value: String(filteredBookings.length) },
+        { label: "Total Revenue", value: `UGX ${filteredBookings.reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}` },
+      ],
+    });
+  };
+
   // Edit modal handlers
   const openEditModal = (b: Booking) => {
     setEditData(b);
@@ -183,9 +230,17 @@ export default function AdminConferenceRoomDashboard() {
           <h1 className="page-title">Conference Room Bookings</h1>
           <p className="page-subtitle">All meeting-space bookings across the property.</p>
         </div>
-        <button onClick={printBooking} className="btn btn-secondary">
-          <Printer size={16} /> Print
-        </button>
+        <div className="flex gap-2">
+          <button onClick={printBooking} className="btn btn-secondary">
+            <Printer size={16} /> Print
+          </button>
+          <button onClick={handleExportCsv} className="btn btn-secondary">
+            <FileSpreadsheet size={16} /> CSV
+          </button>
+          <button onClick={handleExportPdf} className="btn btn-primary">
+            <Download size={16} /> PDF
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

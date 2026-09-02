@@ -81,6 +81,9 @@ function toResponseInput(turns: ProviderTurn[]): OpenAI.Responses.ResponseInput 
 export function createOpenAIProvider(config: ProviderConfig): AIProvider {
   const client = new OpenAI({
     apiKey: config.apiKey,
+    // AI/ML API and other OpenAI-compatible hosts set this;
+    // undefined keeps the default (api.openai.com).
+    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
     timeout: REQUEST_TIMEOUT_MS,
     maxRetries: MAX_RETRIES,
   });

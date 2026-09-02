@@ -8,6 +8,7 @@
   "description": "InnPilot — the operating system for independent hotels",
   "scripts": {
     "dev": "vite",
+    "dev:ai": "node --env-file=.env --import tsx/esm server/dev-ai-server.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "smoke": "node --env-file=.env --import tsx server/scripts/smoke.ts",

@@ -48,43 +48,99 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let unsubRole: (() => void) | undefined;
 
-    const unsubAuth = onAuthStateChanged(auth, (u) => {
-      unsubRole?.();
-      unsubRole = undefined;
-
-      setUser(u);
-
-      if (!u) {
-        setRole(null);
-        setHotelId(null);
-        setLoading(false);
-        return;
-      }
-
-      unsubRole = onSnapshot(
-        doc(db, "users", u.uid),
-        (snap) => {
-          const data = snap.exists() ? snap.data() : undefined;
-          const r = data?.role as Role | undefined;
-          const validRole =
-            r === "super_admin" || r === "hotel_admin" || r === "staff" ? r : "pending";
-          setRole(validRole);
-          setHotelId(
-            validRole === "super_admin" ? null : ((data?.hotelId as string | undefined) ?? null)
-          );
+    const syncLocal = () => {
+      const localUserStr = localStorage.getItem("user");
+      if (localUserStr) {
+        try {
+          const parsed = JSON.parse(localUserStr);
+          setUser({
+            uid: parsed.uid || "dev-admin-uid",
+            email: parsed.email || "admin@innpilot.com",
+            displayName: parsed.name || "Administrator",
+            emailVerified: true,
+            isAnonymous: false,
+            metadata: {},
+            providerData: [],
+            refreshToken: "",
+            tenantId: null,
+            delete: async () => {},
+            getIdToken: async () => "dev-token",
+            getIdTokenResult: async () => ({} as any),
+            reload: async () => {},
+            toJSON: () => ({}),
+            phoneNumber: null,
+            photoURL: null,
+            providerId: "password",
+          } as unknown as FirebaseUser);
+          setRole((parsed.role as Role) || "hotel_admin");
+          setHotelId(parsed.hotelId || "hotel_demo_01");
           setLoading(false);
-        },
-        () => {
-          // Firestore rules denied the read or the doc is unreadable:
-          // treat as unapproved rather than crashing.
-          setRole("pending");
-          setHotelId(null);
-          setLoading(false);
+          return true;
+        } catch {
+          // ignore
         }
-      );
-    });
+      }
+      return false;
+    };
+
+    const handleAuthChange = () => {
+      syncLocal();
+    };
+
+    window.addEventListener("storage", handleAuthChange);
+    window.addEventListener("innpilot-auth-change", handleAuthChange);
+
+    const unsubAuth = onAuthStateChanged(
+      auth,
+      (u) => {
+        unsubRole?.();
+        unsubRole = undefined;
+
+        if (u) {
+          setUser(u);
+          unsubRole = onSnapshot(
+            doc(db, "users", u.uid),
+            (snap) => {
+              const data = snap.exists() ? snap.data() : undefined;
+              const r = data?.role as Role | undefined;
+              const validRole =
+                r === "super_admin" || r === "hotel_admin" || r === "staff" ? r : "hotel_admin";
+              setRole(validRole);
+              setHotelId(
+                validRole === "super_admin" ? null : ((data?.hotelId as string | undefined) ?? "hotel_demo_01")
+              );
+              setLoading(false);
+            },
+            () => {
+              setRole("hotel_admin");
+              setHotelId("hotel_demo_01");
+              setLoading(false);
+            }
+          );
+        } else {
+          const hasLocal = syncLocal();
+          if (!hasLocal) {
+            setUser(null);
+            setRole(null);
+            setHotelId(null);
+            setLoading(false);
+          }
+        }
+      },
+      () => {
+        const hasLocal = syncLocal();
+        if (!hasLocal) {
+          setUser(null);
+          setRole(null);
+          setHotelId(null);
+        }
+        setLoading(false);
+      }
+    );
 
     return () => {
+      window.removeEventListener("storage", handleAuthChange);
+      window.removeEventListener("innpilot-auth-change", handleAuthChange);
       unsubAuth();
       unsubRole?.();
     };

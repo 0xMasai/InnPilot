@@ -129,6 +129,8 @@ export interface ProviderConfig {
   provider: string;
   model: string;
   apiKey: string;
+  /** Optional base URL for OpenAI-compatible third-party hosts (e.g. AI/ML API). */
+  baseURL?: string;
   maxTokens: number;
   effort: Effort;
 }
@@ -197,6 +199,7 @@ export function resolveProviderConfig(env: Env = process.env): ProviderConfig {
     provider,
     model: read(env, "AI_MODEL") ?? DEFAULT_MODELS[provider],
     apiKey,
+    baseURL: read(env, "AI_API_BASE_URL"),
     maxTokens,
     effort: (rawEffort as Effort | undefined) ?? DEFAULT_EFFORT,
   };

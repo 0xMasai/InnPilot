@@ -16,7 +16,8 @@ import { useAuth } from "../../auth/AuthProvider";
 import { onAuthStateChanged } from "firebase/auth";
 import Tippy from "@tippyjs/react";
 import "tippy.js/dist/tippy.css";
-import { Printer, Search, Pencil, BedDouble, X } from "lucide-react";
+import { Printer, Search, Pencil, BedDouble, X, Download, FileSpreadsheet } from "lucide-react";
+import { exportToCsv, exportToPdf } from "../../lib/exportUtils";
 
 interface AccommodationRecord {
   id: string;
@@ -169,11 +170,57 @@ export default function AdminAccommodationDashboard() {
   });
 
   printWindow.document.write("</tbody></table>");
-  printWindow.document.write("</body></html>");
-
   printWindow.document.close();
   printWindow.focus();
   printWindow.print();
+};
+
+const handleExportCsv = () => {
+  exportToCsv({
+    title: "Accommodation Booking Records",
+    subtitle: "All property guest bookings",
+    filename: "accommodation-records",
+    columns: ["Guest Name", "Guest Email", "Room Type", "Guests", "Check-in", "Check-out", "Amount Paid (UGX)", "Payment Status", "Notes"],
+    rows: filteredRecords.map((r) => [
+      r.guestName,
+      r.guestEmail,
+      r.roomType,
+      r.numberOfGuests,
+      r.checkIn || "-",
+      r.checkOut || "-",
+      r.pricePaid,
+      r.paymentStatus,
+      r.notes || "-",
+    ]),
+    kpis: [
+      { label: "Total Bookings", value: String(filteredRecords.length) },
+      { label: "Total Revenue", value: `UGX ${filteredRecords.reduce((sum, r) => sum + (Number(r.pricePaid) || 0), 0).toLocaleString()}` },
+    ],
+  });
+};
+
+const handleExportPdf = () => {
+  exportToPdf({
+    title: "Accommodation Booking Records",
+    subtitle: "All property guest bookings",
+    filename: "accommodation-records",
+    columns: ["Guest Name", "Guest Email", "Room Type", "Guests", "Check-in", "Check-out", "Amount Paid (UGX)", "Payment Status", "Notes"],
+    rows: filteredRecords.map((r) => [
+      r.guestName,
+      r.guestEmail,
+      r.roomType,
+      r.numberOfGuests,
+      r.checkIn || "-",
+      r.checkOut || "-",
+      r.pricePaid.toLocaleString(),
+      r.paymentStatus,
+      r.notes || "-",
+    ]),
+    kpis: [
+      { label: "Total Bookings", value: String(filteredRecords.length) },
+      { label: "Total Revenue", value: `UGX ${filteredRecords.reduce((sum, r) => sum + (Number(r.pricePaid) || 0), 0).toLocaleString()}` },
+    ],
+  });
 };
 
   // const handleDelete = async (id: string) => {
@@ -314,9 +361,17 @@ export default function AdminAccommodationDashboard() {
           <h1 className="page-title">Accommodation Records</h1>
           <p className="page-subtitle">All guest bookings across the property.</p>
         </div>
-        <button onClick={printAccommodationRecords} className="btn btn-secondary">
-          <Printer size={16} /> Print Records
-        </button>
+        <div className="flex gap-2">
+          <button onClick={printAccommodationRecords} className="btn btn-secondary">
+            <Printer size={16} /> Print
+          </button>
+          <button onClick={handleExportCsv} className="btn btn-secondary">
+            <FileSpreadsheet size={16} /> CSV
+          </button>
+          <button onClick={handleExportPdf} className="btn btn-primary">
+            <Download size={16} /> PDF
+          </button>
+        </div>
       </div>
 
       {/* ERROR */}

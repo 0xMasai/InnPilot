@@ -18,8 +18,7 @@ import {
   Wallet,
   Scale,
 } from "lucide-react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { exportToCsv, exportToPdf } from "./lib/exportUtils";
 import { COLLECTIONS } from "./lib/collections";
 import {
   computeMetrics,
@@ -278,54 +277,25 @@ export default function ReportsDashboard() {
   // ---------- Exports ----------
 
   const exportCsv = () => {
-    const esc = (v: string | number) => {
-      const s = String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [
-      `${built.title} — ${range.label}`,
-      "",
-      ...built.kpis.map((k) => `${esc(k.label)},${esc(k.value)}`),
-      "",
-      built.columns.map(esc).join(","),
-      ...built.rows.map((r) => r.map(esc).join(",")),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${fileStem}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCsv({
+      title: built.title,
+      subtitle: range.label,
+      filename: fileStem,
+      columns: built.columns,
+      rows: built.rows,
+      kpis: built.kpis,
+    });
   };
 
   const exportPdf = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(built.title, 14, 18);
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Period: ${range.label} · Generated ${new Date().toLocaleString()}`, 14, 25);
-
-    doc.setTextColor(30);
-    let y = 34;
-    built.kpis.forEach((k) => {
-      doc.setFont("helvetica", "bold");
-      doc.text(`${k.label}:`, 14, y);
-      doc.setFont("helvetica", "normal");
-      doc.text(k.value, 70, y);
-      y += 6;
+    exportToPdf({
+      title: built.title,
+      subtitle: range.label,
+      filename: fileStem,
+      columns: built.columns,
+      rows: built.rows,
+      kpis: built.kpis,
     });
-
-    autoTable(doc, {
-      startY: y + 4,
-      head: [built.columns],
-      body: built.rows.map((r) => r.map(String)),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [30, 58, 138] },
-    });
-
-    doc.save(`${fileStem}.pdf`);
   };
 
   const printReport = () => {
