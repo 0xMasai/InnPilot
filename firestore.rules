@@ -153,6 +153,21 @@ service cloud.firestore {
         allow create: if hotelStaff(hotelId) && own() && fieldsOk() && tenantFieldOk(hotelId);
         allow update, delete: if false;
       }
+
+      // The AI agent's own trail: every tool call it made, written only by
+      // the server through the Admin SDK. Readable by the hotel's admin,
+      // like auditLog above, because it exists to be reviewed — its
+      // contents are redacted at the point of writing (server/ai/redact.ts)
+      // precisely so it can be. No client may create one: an entry that a
+      // browser could forge is not a record of what the agent did.
+      //
+      // The other AI collections (aiConversations, aiPendingActions) stay
+      // server-only under the catch-all denial below — they hold what the
+      // manager typed, and the token that authorises a write.
+      match /aiAuditLog/{docId} {
+        allow read: if hotelAdmin(hotelId);
+        allow create, update, delete: if false;
+      }
     }
 
     match /{document=**} {

@@ -10,6 +10,19 @@
  * Tool activity is shown rather than hidden because the agent's claim to be
  * trusted rests on it: a manager can see that a figure came from
  * `get_revenue` in 214ms, and not from the model's imagination.
+ *
+ * Phase 14 adds a microphone and a speaker, and deliberately nothing else.
+ * Dictation fills the composer; the user reads it and sends it, exactly as
+ * if they had typed it. Both halves are the browser's, both are absent
+ * without a word of special-casing when the browser lacks them, and
+ * neither reaches the agent: a spoken question is a string by the time
+ * `askInnPilot` sees it. See `src/lib/voice.ts`.
+ *
+ * The one rule worth stating outright: **a confirmation is a click, never
+ * a spoken "yes".** Confirming a write requires the `confirmationId` the
+ * server issued, which only the button below holds — so a transcript
+ * saying "yes, go ahead" is just another question, and the model can do
+ * nothing with it but propose the change again.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,11 +30,15 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
+  Mic,
   RotateCcw,
   Send,
   ShieldAlert,
   Sparkles,
+  Square,
   User as UserIcon,
+  Volume2,
+  VolumeX,
   Wrench,
 } from "lucide-react";
 import {
@@ -29,8 +46,17 @@ import {
   askInnPilot,
   newConversationId,
   type AgentResponse,
+  type InputMode,
   type ToolCallRecord,
 } from "../../lib/aiClient";
+import {
+  detectVoiceSupport,
+  speak,
+  speakableText,
+  startDictation,
+  stopSpeaking,
+  type DictationSession,
+} from "../../lib/voice";
 import { useAuth } from "../../auth/AuthProvider";
 
 /**
@@ -49,7 +75,19 @@ type Entry =
       toolCalls: ToolCallRecord[];
       pendingConfirmation?: AgentResponse["pendingConfirmation"];
     }
-  | { kind: "error"; id: string; message: string; retry: string };
+  | {
+      kind: "error";
+      id: string;
+      message: string;
+      retry: string;
+      /**
+       * The gateway's id for this request, when it reached the gateway.
+       * Shown so a manager reporting the failure has the one string that
+       * finds it in the logs (Phase 13) — otherwise support is left
+       * searching by "sometime this afternoon".
+       */
+      requestId?: string;
+    };
 
 /** Hotel business questions covering all operational and strategic domains */
 const SUGGESTIONS = [
@@ -208,25 +246,56 @@ export default function AskInnPilot() {
    */
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
 
+  // What this browser can do, asked once: the mic and the speaker are
+  // absent rather than broken where the Web Speech API is not implemented.
+  const [voice] = useState(detectVoiceSupport);
+  const [listening, setListening] = useState(false);
+  /** The recogniser's running guess, shown but never sent on its own. */
+  const [interim, setInterim] = useState("");
+  /**
+   * Whether the text sitting in the composer came from the microphone.
+   * Kept through an edit — a question that began as dictation is still a
+   * spoken one for the audit trail's purposes — and cleared on send.
+   */
+  const [dictated, setDictated] = useState(false);
+  const [speakReplies, setSpeakReplies] = useState(true);
+  /** A dictation failure the user may be able to act on (blocked mic). */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
   const transcriptEnd = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const dictation = useRef<DictationSession | null>(null);
   // One in-flight turn at a time, aborted on unmount so a reply never lands
   // on a component that is gone.
   const inFlight = useRef<AbortController | null>(null);
 
-  useEffect(() => () => inFlight.current?.abort(), []);
+  useEffect(
+    () => () => {
+      inFlight.current?.abort();
+      // A microphone left open and a voice still talking are both things a
+      // user has no way to stop once this page is gone.
+      dictation.current?.cancel();
+      stopSpeaking();
+    },
+    []
+  );
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [entries, sending]);
 
   const send = useCallback(
-    async (question: string, confirmationId?: string) => {
+    async (question: string, confirmationId?: string, inputMode: InputMode = "text") => {
       const text = question.trim();
       if (!text || sending) return;
 
       setEntries((prev) => [...prev, { kind: "user", id: entryId(), text }]);
       setInput("");
+      setInterim("");
+      setDictated(false);
+      setVoiceError(null);
+      // Whatever was still being said belongs to the previous answer.
+      stopSpeaking();
       setSending(true);
       // Answered the moment it is sent, not when the reply lands: the id is
       // single-use server-side, so a second click could only ever be
@@ -243,6 +312,7 @@ export default function AskInnPilot() {
           message: text,
           conversationId,
           confirmationId,
+          inputMode,
           signal: controller.signal,
         });
         // The gateway owns the conversation id; adopt what it returns rather
@@ -258,6 +328,13 @@ export default function AskInnPilot() {
             pendingConfirmation: response.pendingConfirmation,
           },
         ]);
+        // Spoken back only when the question was spoken. Someone typing at
+        // a front desk did not ask to be read to, and the reply is the
+        // only part said aloud — tool arguments and results are not, for
+        // the same reason the logs do not carry them: a speaker is public.
+        if (inputMode === "voice" && speakReplies && voice.speech) {
+          speak(speakableText(response.reply));
+        }
       } catch (err) {
         // A turn we cancelled ourselves is not a failure to report.
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -265,18 +342,91 @@ export default function AskInnPilot() {
           err instanceof AiClientError
             ? err.message
             : "Something went wrong talking to the assistant.";
-        setEntries((prev) => [...prev, { kind: "error", id: entryId(), message, retry: text }]);
+        const requestId = err instanceof AiClientError ? err.requestId : undefined;
+        setEntries((prev) => [
+          ...prev,
+          { kind: "error", id: entryId(), message, retry: text, requestId },
+        ]);
       } finally {
         if (inFlight.current === controller) inFlight.current = null;
         setSending(false);
       }
     },
-    [conversationId, sending]
+    [conversationId, sending, speakReplies, voice.speech]
   );
+
+  /**
+   * Start listening, or stop early.
+   *
+   * A session is single-shot: the browser ends it at a natural pause, so
+   * the common case needs no second click. The button is still a toggle
+   * because a recogniser that has not heard anything will otherwise sit
+   * open, and a person who changed their mind needs a way out.
+   */
+  function toggleDictation() {
+    if (listening) {
+      dictation.current?.stop();
+      return;
+    }
+
+    setVoiceError(null);
+    stopSpeaking();
+    const session = startDictation({
+      onInterim: setInterim,
+      onFinal: (text) => {
+        if (!text) return;
+        setDictated(true);
+        setInput((prev) => (prev ? `${prev.trimEnd()} ${text}` : text));
+        setInterim("");
+      },
+      onError: setVoiceError,
+      onEnd: () => {
+        setListening(false);
+        setInterim("");
+        dictation.current = null;
+        composer.current?.focus();
+      },
+    });
+
+    if (!session) {
+      // startDictation reports the reason through onError before it
+      // returns null, so there is nothing to add here.
+      setListening(false);
+      return;
+    }
+    dictation.current = session;
+    setListening(true);
+  }
+
+  /**
+   * Send what is in the composer.
+   *
+   * Dictated or typed, this is the same call — the question is a string,
+   * and `inputMode` describes where it came from without changing what
+   * happens to it. A session still listening is stopped first, so the tail
+   * of a sentence cannot arrive after the question has gone.
+   */
+  function submit() {
+    if (listening) dictation.current?.stop();
+    void send(input, undefined, dictated ? "voice" : "text");
+  }
+
+  function toggleSpeakReplies() {
+    setSpeakReplies((prev) => {
+      if (prev) stopSpeaking();
+      return !prev;
+    });
+  }
 
   function startNewConversation() {
     inFlight.current?.abort();
     inFlight.current = null;
+    dictation.current?.cancel();
+    stopSpeaking();
+    setListening(false);
+    setInterim("");
+    setDictated(false);
+    setVoiceError(null);
     setSending(false);
     setEntries([]);
     setAnswered(new Set());
@@ -311,11 +461,33 @@ export default function AskInnPilot() {
             strategy, F&amp;B, housekeeping, MICE, HR, and more.
           </p>
         </div>
-        {entries.length > 0 && (
-          <button type="button" className="btn btn-sm btn-secondary" onClick={startNewConversation}>
-            <RotateCcw size={14} /> New conversation
-          </button>
-        )}
+        <div className="flex flex-none items-center gap-2">
+          {voice.dictation && voice.speech && (
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={toggleSpeakReplies}
+              aria-pressed={speakReplies}
+              title={
+                speakReplies
+                  ? "Answers to spoken questions are read aloud"
+                  : "Answers are shown but not read aloud"
+              }
+            >
+              {speakReplies ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              {speakReplies ? "Speaking" : "Muted"}
+            </button>
+          )}
+          {entries.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={startNewConversation}
+            >
+              <RotateCcw size={14} /> New conversation
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="card flex min-h-0 flex-1 flex-col">
@@ -372,6 +544,11 @@ export default function AskInnPilot() {
                   </span>
                   <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-[var(--danger-border)] bg-[var(--danger-soft)] px-3.5 py-2.5">
                     <p className="text-sm text-[var(--danger-text)]">{entry.message}</p>
+                    {entry.requestId && (
+                      <p className="mt-1 font-mono text-[11px] text-[var(--text-secondary)]">
+                        Reference {entry.requestId}
+                      </p>
+                    )}
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost mt-1.5 px-0"
@@ -447,35 +624,81 @@ export default function AskInnPilot() {
           <div ref={transcriptEnd} />
         </div>
 
-        <form
-          className="flex items-end gap-2 border-t border-[var(--border)] p-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send(input);
-          }}
-        >
-          <textarea
-            ref={composer}
-            className="textarea min-h-0 flex-1 resize-none"
-            rows={1}
-            value={input}
-            placeholder="Ask about occupancy, revenue, arrivals…"
-            disabled={sending}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter sends, Shift+Enter is a newline — the convention for a
-              // composer people type one question into.
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send(input);
-              }
+        <div className="border-t border-[var(--border)] p-3">
+          {(listening || voiceError) && (
+            <p
+              className={`mb-2 flex items-center gap-1.5 text-xs ${
+                voiceError ? "text-[var(--danger-text)]" : "text-[var(--text-muted)]"
+              }`}
+              role="status"
+            >
+              {voiceError ? (
+                <>
+                  <AlertCircle size={13} className="flex-none" />
+                  {voiceError}
+                </>
+              ) : (
+                <>
+                  <span className="size-2 flex-none animate-pulse rounded-full bg-[var(--danger)]" />
+                  Listening — the words appear below for you to check before sending.
+                </>
+              )}
+            </p>
+          )}
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
             }}
-          />
-          <button type="submit" className="btn btn-primary" disabled={sending || !input.trim()}>
-            {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            Ask
-          </button>
-        </form>
+          >
+            <textarea
+              ref={composer}
+              className="textarea min-h-0 flex-1 resize-none"
+              rows={1}
+              // The settled text plus whatever is currently being heard, so
+              // a person can see the recogniser catching up. Only `input`
+              // is ever sent: an interim guess is not a question.
+              value={interim ? `${input ? `${input.trimEnd()} ` : ""}${interim}` : input}
+              placeholder={
+                voice.dictation
+                  ? "Ask about occupancy, revenue, arrivals — or press the microphone…"
+                  : "Ask about occupancy, revenue, arrivals…"
+              }
+              disabled={sending}
+              onChange={(event) => {
+                // Typing replaces the whole value, interim guess included.
+                setInterim("");
+                setInput(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                // Enter sends, Shift+Enter is a newline — the convention for a
+                // composer people type one question into.
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void submit();
+                }
+              }}
+            />
+            {voice.dictation && (
+              <button
+                type="button"
+                className={`btn ${listening ? "btn-danger" : "btn-secondary"}`}
+                onClick={toggleDictation}
+                disabled={sending}
+                aria-pressed={listening}
+                aria-label={listening ? "Stop dictating" : "Dictate your question"}
+                title={listening ? "Stop dictating" : "Dictate your question"}
+              >
+                {listening ? <Square size={15} /> : <Mic size={15} />}
+              </button>
+            )}
+            <button type="submit" className="btn btn-primary" disabled={sending || !input.trim()}>
+              {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              Ask
+            </button>
+          </form>
+        </div>
       </div>
     </section>
   );

@@ -38,6 +38,35 @@ export interface UpdateReservationStatusInput {
   status: BookingStatus;
 }
 
+/**
+ * What the handler reports back.
+ *
+ * `reservation` is the human description — guest name included — and is
+ * what the user is told. `id`, `reference` and `roomNumber` are the
+ * identifying fields, and they are what the audit trail uses: a trail that
+ * says "RSV-1043 · room 12: Confirmed → Checked In" identifies the booking
+ * exactly without copying a guest's name into a second collection.
+ */
+export interface UpdateReservationStatusOutput {
+  changed: boolean;
+  id: string;
+  reference: string;
+  roomNumber: string | undefined;
+  reservation: string;
+  status: BookingStatus;
+  previousStatus?: BookingStatus | null;
+  note?: string;
+  confirmedByReadBack?: boolean;
+}
+
+/**
+ * How a reservation is identified in the audit trail: its reference, or the
+ * document id when a legacy record has none. Never the guest's name.
+ */
+function auditReference(doc: ReservationDoc & { id: string }): string {
+  return doc.reservationId?.trim() || doc.id;
+}
+
 /** How a reservation reads in an error message or a summary. */
 function describe(doc: ReservationDoc): string {
   const parts = [doc.guestName || "Unnamed guest"];
@@ -92,7 +121,10 @@ async function resolveReservation(
   return matches[0];
 }
 
-export const updateReservationStatus: ToolDefinition<UpdateReservationStatusInput, unknown> = {
+export const updateReservationStatus: ToolDefinition<
+  UpdateReservationStatusInput,
+  UpdateReservationStatusOutput
+> = {
   name: "update_reservation_status",
   description:
     "Move one reservation along its lifecycle: check a guest in or out, " +
@@ -160,6 +192,9 @@ export const updateReservationStatus: ToolDefinition<UpdateReservationStatusInpu
     if (previousStatus === input.status) {
       return {
         changed: false,
+        id: reservation.id,
+        reference: auditReference(reservation),
+        roomNumber: reservation.roomNumber,
         reservation: describe(reservation),
         status: input.status,
         note: "Already at that status; nothing was written.",
@@ -179,10 +214,27 @@ export const updateReservationStatus: ToolDefinition<UpdateReservationStatusInpu
     return {
       id: reservation.id,
       changed: true,
+      reference: auditReference(reservation),
+      roomNumber: reservation.roomNumber,
       reservation: describe(reservation),
       previousStatus,
       status: stored?.status ?? input.status,
       confirmedByReadBack: stored?.status === input.status,
     };
   },
+
+  /**
+   * The audit line. Built from the reservation reference and room, never
+   * from `describe()` or from `input.reservation` — both of those may be a
+   * guest's name, and the audit trail identifies bookings rather than
+   * naming people. See `server/ai/redact.ts`.
+   */
+  audit: (_input, output) => ({
+    entity: "booking",
+    entityId: output.id,
+    action: "Reservation status changed",
+    details: `${output.reference}${output.roomNumber ? ` · room ${output.roomNumber}` : ""}: ${
+      output.previousStatus ?? "no status"
+    } → ${output.status}`,
+  }),
 };
