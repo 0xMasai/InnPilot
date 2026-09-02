@@ -32,6 +32,12 @@ export interface ToolCallRecord {
 /** Mirrors `AgentResponse` in `server/ai/types.ts`. */
 export interface AgentResponse {
   conversationId: string;
+  /**
+   * Identifies this request in the gateway's logs (Phase 13). Optional
+   * because the type is shared with the Orchestrator's own return value,
+   * which predates the id; a response off the wire always carries one.
+   */
+  requestId?: string;
   reply: string;
   toolCalls: ToolCallRecord[];
   pendingConfirmation?: {
@@ -51,11 +57,19 @@ export interface AgentResponse {
 export class AiClientError extends Error {
   /** HTTP status, or 0 when the request never reached the server. */
   readonly status: number;
+  /**
+   * The gateway's id for the failed request, when it got far enough to
+   * have one. Shown to the user so a report of "it said it was
+   * unavailable" comes with the one string that finds the logs; absent for
+   * failures that never reached the server.
+   */
+  readonly requestId?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, requestId?: string) {
     super(message);
     this.name = "AiClientError";
     this.status = status;
+    this.requestId = requestId;
   }
 }
 
@@ -131,13 +145,15 @@ export async function askInnPilot(params: {
   // sentence keeps a stray "<!DOCTYPE html>" out of the chat transcript.
   if (!response.ok) {
     let message = "The assistant is unavailable right now.";
+    let requestId: string | undefined;
     try {
-      const body = (await response.json()) as { error?: unknown };
+      const body = (await response.json()) as { error?: unknown; requestId?: unknown };
       if (typeof body.error === "string" && body.error) message = body.error;
+      if (typeof body.requestId === "string" && body.requestId) requestId = body.requestId;
     } catch {
       // Keep the fallback.
     }
-    throw new AiClientError(response.status, message);
+    throw new AiClientError(response.status, message, requestId);
   }
 
   try {

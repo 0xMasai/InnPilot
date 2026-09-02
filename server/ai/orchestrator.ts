@@ -21,7 +21,12 @@
  * an executed write is additionally recorded in the operational audit log
  * the rest of InnPilot writes to. See `auditLogger.ts`.
  *
- * Still deliberately absent: structured logs (Phase 13).
+ * Phase 13 adds the operator's view of the same events — one structured
+ * line per tool call, per model round-trip and per confirmation, plus a
+ * turn total — and makes two failures survivable that were not: a history
+ * write that fails no longer discards a completed turn, and an unexpected
+ * exception mid-loop becomes an honest "I have no answer" rather than a
+ * 500 that loses the trail. See `logger.ts`.
  *
  * The honesty rule from the brief governs every failure path: if a tool
  * fails, the model is told it failed and must say so. Nothing here lets an
@@ -50,12 +55,22 @@ import { assertCanCallTool } from "./permissionGuard";
 import { recordAiActions } from "./auditLogger";
 import type { AiAuditEvent, ConfirmationStatus } from "./auditLogger";
 import {
+  logConfirmation,
+  logInternalError,
+  logProblem,
+  logProviderCall,
+  logProviderFailure,
+  logToolCall,
+  noteCachedReads,
+  noteOutcome,
+} from "./logger";
+import {
   ProviderConfigurationError,
   ProviderRequestError,
   getProvider,
   isProviderConfigured,
 } from "./provider";
-import { withRequestCache } from "./requestCache";
+import { requestCacheSize, withRequestCache } from "./requestCache";
 import type { ProviderToolSchema, ProviderToolUse, ProviderTurn } from "./provider";
 
 /** How many prior messages of context the model gets. */
@@ -89,6 +104,9 @@ const REFUSAL_REPLY =
 
 const TOOL_LOOP_EXHAUSTED_REPLY =
   "I looked up several things but couldn't settle on an answer. Try asking about one specific figure — occupancy, revenue, arrivals — and I'll go straight at it.";
+
+const UNEXPECTED_FAILURE_REPLY =
+  "Something went wrong inside InnPilot while I was working on that, so I have no answer for you rather than a guessed one. Please try again, and tell your administrator if it keeps happening.";
 
 function toolSchemas(tools: RegisteredTool[]): ProviderToolSchema[] {
   return tools.map((tool) => ({
@@ -213,7 +231,7 @@ async function executeToolCall(
       },
     };
   } catch (err) {
-    console.error(`Tool '${call.name}' failed:`, err);
+    logInternalError("tool_handler", err, { toolName: call.name });
     // The message may carry Firestore detail; tell the model the shape of
     // the failure, not its contents.
     return fail(
@@ -285,7 +303,7 @@ async function proposeWrite(params: {
   // there is nothing for a user to approve. Failing closed here means a
   // tool added without one is inert rather than silently unconfirmed.
   if (!tool.summarize) {
-    console.error(`Write tool '${tool.name}' has no summarize(); refusing to propose it.`);
+    logProblem("write_not_confirmable", { toolName: tool.name });
     const message = `The '${call.name}' action is not available.`;
     return result(
       { error: message },
@@ -305,7 +323,7 @@ async function proposeWrite(params: {
         ? err.message
         : `Could not work out what '${call.name}' would change.`;
     if (!(err instanceof ToolValidationError)) {
-      console.error(`Write tool '${call.name}' failed to summarize:`, err);
+      logInternalError("write_summarize", err, { toolName: call.name });
     }
     return result(
       { error: message },
@@ -419,7 +437,10 @@ async function executeConfirmed(
       target: auditTarget(tool, action.input, output),
     };
   } catch (err) {
-    console.error(`Confirmed write '${action.toolName}' failed:`, err);
+    logInternalError("tool_handler", err, {
+      toolName: action.toolName,
+      confirmed: true,
+    });
     return failed(
       "handler_failed",
       "That change could not be saved, so nothing was changed. Please try again."
@@ -451,7 +472,7 @@ function auditTarget(
   try {
     return tool.audit(input, output);
   } catch (err) {
-    console.error(`Write tool '${tool.name}' failed to describe its audit entry:`, err);
+    logInternalError("write_audit_describe", err, { toolName: tool.name });
     return undefined;
   }
 }
@@ -591,6 +612,30 @@ async function runOrReuse(
   return executed;
 }
 
+/**
+ * Append to the conversation history, and carry on if that fails.
+ *
+ * History is context for the *next* question; it is not the answer to this
+ * one, and it is not the record of what happened — that is `aiAuditLog`.
+ * Letting a Firestore hiccup here throw would discard a reply the user has
+ * already waited for, and on the confirmation path it would report a write
+ * that succeeded as a failure. The same reasoning the Audit Logger uses,
+ * applied to the one other write that is not the point of the request.
+ */
+async function rememberMessage(params: {
+  hotelId: string;
+  conversationId: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  toolName?: string;
+}): Promise<void> {
+  try {
+    await appendMessage(params);
+  } catch (err) {
+    logInternalError("conversation_append", err, { messageRole: params.role });
+  }
+}
+
 export async function handleTurn(
   ctx: ToolContext,
   userMessage: string,
@@ -613,7 +658,7 @@ export async function handleTurn(
     userId: ctx.userId,
   });
 
-  await appendMessage({
+  await rememberMessage({
     hotelId,
     conversationId: ctx.conversationId,
     role: "user",
@@ -622,7 +667,7 @@ export async function handleTurn(
 
   if (confirmationId) {
     const outcome = await handleConfirmation(ctx, hotelId, confirmationId);
-    await appendMessage({
+    await rememberMessage({
       hotelId,
       conversationId: ctx.conversationId,
       role: "assistant",
@@ -638,7 +683,7 @@ export async function handleTurn(
     runTurn(ctx, hotelId, userMessage)
   );
 
-  await appendMessage({
+  await rememberMessage({
     hotelId,
     conversationId: ctx.conversationId,
     role: "assistant",
@@ -692,6 +737,8 @@ async function handleConfirmation(
         durationMs: 0,
       },
     ]);
+    noteOutcome("confirmation_rejected");
+    logConfirmation({ phase: "refused", toolName: null, errorKind: "confirmation_invalid" });
     return {
       reply:
         "That confirmation is no longer valid — it may have expired, or already been used. " +
@@ -705,6 +752,21 @@ async function handleConfirmation(
   await recordAiActions(ctx, [
     auditEventFor(record, { confirmationStatus: "confirmed", confirmationId, target }),
   ]);
+
+  logToolCall(record, {
+    actionType: "write",
+    proposed: false,
+  });
+  logConfirmation({
+    phase: record.status === "ok" ? "confirmed" : "failed",
+    toolName: record.toolName,
+    durationMs: record.durationMs,
+    errorKind: record.errorKind,
+  });
+  // A confirmed write that failed is its own outcome, not an internal
+  // error: the tool was reached, it refused or broke, and the user was
+  // told nothing changed. Worth counting separately from both.
+  noteOutcome(record.status === "ok" ? "confirmed_write" : "confirmation_failed");
 
   return { reply, toolCalls: [record] };
 }
@@ -740,6 +802,7 @@ async function runTurn(
   let pendingConfirmation: AgentResponse["pendingConfirmation"];
 
   if (!isProviderConfigured()) {
+    noteOutcome("not_configured");
     return { reply: NOT_CONFIGURED_REPLY, toolCalls };
   }
 
@@ -769,19 +832,53 @@ async function runTurn(
     const provider = getProvider();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const response = await provider.generate({
-        system,
-        messages: turns,
-        tools: schemas,
+      // Timed here rather than inside the provider so every
+      // implementation is measured the same way, and so the round number
+      // — which only this loop knows — is on the line. `providerMs` is
+      // what separates "the model is slow" from "we are slow".
+      const startedAt = Date.now();
+      let response;
+      try {
+        response = await provider.generate({
+          system,
+          messages: turns,
+          tools: schemas,
+        });
+      } catch (err) {
+        logProviderFailure({
+          kind: "request",
+          provider: provider.providerName,
+          model: provider.model,
+          round,
+          durationMs: Date.now() - startedAt,
+          status: err instanceof ProviderRequestError ? err.status : undefined,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+
+      logProviderCall({
+        provider: provider.providerName,
+        model: provider.model,
+        round,
+        durationMs: Date.now() - startedAt,
+        stopReason: response.stopReason,
+        toolUses: response.toolUses.length,
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
       });
 
       if (response.stopReason === "refusal") {
+        noteOutcome("model_refused");
         return { reply: REFUSAL_REPLY, toolCalls, pendingConfirmation };
       }
 
       if (response.toolUses.length === 0) {
         // The usual end of a turn that proposed a write: the model has
         // just written the sentence asking the user to confirm.
+        noteOutcome(
+          pendingConfirmation ? "confirmation_pending" : response.text ? "answered" : "model_refused"
+        );
         return { reply: response.text || REFUSAL_REPLY, toolCalls, pendingConfirmation };
       }
 
@@ -818,11 +915,24 @@ async function runTurn(
         turns.push(turn);
         toolCalls.push(record);
         if (proposed && !pendingConfirmation) pendingConfirmation = proposed;
+
+        const tool = getTool(record.toolName);
+        logToolCall(record, {
+          actionType: tool ? (tool.isWrite ? "write" : "read") : "unknown",
+          proposed: proposed !== undefined,
+        });
+        if (proposed) {
+          logConfirmation({
+            phase: "proposed",
+            toolName: record.toolName,
+            durationMs: record.durationMs,
+          });
+        }
       }
 
       await Promise.all([
         ...executed.map(({ record }) =>
-          appendMessage({
+          rememberMessage({
             hotelId,
             conversationId: ctx.conversationId,
             role: "tool",
@@ -845,16 +955,30 @@ async function runTurn(
       ]);
     }
 
+    noteOutcome("tool_loop_exhausted");
     return { reply: TOOL_LOOP_EXHAUSTED_REPLY, toolCalls, pendingConfirmation };
   } catch (err) {
     if (err instanceof ProviderConfigurationError) {
-      console.error("AI provider misconfigured:", err.message);
+      // Raised by getProvider() before the loop; nothing has logged it yet.
+      logProviderFailure({ kind: "configuration", message: err.message });
+      noteOutcome("not_configured");
       return { reply: NOT_CONFIGURED_REPLY, toolCalls, pendingConfirmation };
     }
     if (err instanceof ProviderRequestError) {
-      console.error("AI provider request failed:", err.status, err.message);
+      // Already logged at the round it failed in, with its latency.
+      noteOutcome("provider_failed");
       return { reply: PROVIDER_FAILED_REPLY, toolCalls, pendingConfirmation };
     }
-    throw err;
+
+    // Anything else is a bug. It used to propagate to the adapter as a
+    // 500, which threw away the tool calls the UI would have shown and
+    // gave the user a dead conversation. Degrading here keeps the trail
+    // and says plainly that there is no answer — the same honesty rule
+    // the tool failure paths follow, applied to our own failures.
+    logInternalError("turn", err);
+    noteOutcome("internal_error");
+    return { reply: UNEXPECTED_FAILURE_REPLY, toolCalls, pendingConfirmation };
+  } finally {
+    noteCachedReads(requestCacheSize());
   }
 }

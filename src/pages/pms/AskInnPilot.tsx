@@ -49,7 +49,19 @@ type Entry =
       toolCalls: ToolCallRecord[];
       pendingConfirmation?: AgentResponse["pendingConfirmation"];
     }
-  | { kind: "error"; id: string; message: string; retry: string };
+  | {
+      kind: "error";
+      id: string;
+      message: string;
+      retry: string;
+      /**
+       * The gateway's id for this request, when it reached the gateway.
+       * Shown so a manager reporting the failure has the one string that
+       * finds it in the logs (Phase 13) — otherwise support is left
+       * searching by "sometime this afternoon".
+       */
+      requestId?: string;
+    };
 
 /** Questions from the brief's definition of done — a usable starting point. */
 const SUGGESTIONS = [
@@ -259,7 +271,11 @@ export default function AskInnPilot() {
           err instanceof AiClientError
             ? err.message
             : "Something went wrong talking to the assistant.";
-        setEntries((prev) => [...prev, { kind: "error", id: entryId(), message, retry: text }]);
+        const requestId = err instanceof AiClientError ? err.requestId : undefined;
+        setEntries((prev) => [
+          ...prev,
+          { kind: "error", id: entryId(), message, retry: text, requestId },
+        ]);
       } finally {
         if (inFlight.current === controller) inFlight.current = null;
         setSending(false);
@@ -363,6 +379,11 @@ export default function AskInnPilot() {
                   </span>
                   <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-[var(--danger-border)] bg-[var(--danger-soft)] px-3.5 py-2.5">
                     <p className="text-sm text-[var(--danger-text)]">{entry.message}</p>
+                    {entry.requestId && (
+                      <p className="mt-1 font-mono text-[11px] text-[var(--text-secondary)]">
+                        Reference {entry.requestId}
+                      </p>
+                    )}
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost mt-1.5 px-0"

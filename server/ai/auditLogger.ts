@@ -33,15 +33,16 @@
  *
  * ## Failure
  *
- * Fire-and-forget, mirroring `src/lib/audit.ts`: a logging failure is
- * reported to the console and swallowed, because an audit write that can
- * break a manager's request is a worse problem than a missing row. It is
- * still awaited by the caller — on a serverless host an unawaited promise
- * may simply never run.
+ * Fire-and-forget, mirroring `src/lib/audit.ts`: a logging failure becomes
+ * an `ai.error` line for the operator (Phase 13) and is swallowed, because
+ * an audit write that can break a manager's request is a worse problem
+ * than a missing row. It is still awaited by the caller — on a serverless
+ * host an unawaited promise is one that may simply never run.
  */
 import { db } from "../admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { describeResultShape, fingerprint, redactToolInput } from "./redact";
+import { logInternalError, logProblem } from "./logger";
 import type { AiAuditTarget, ToolContext, ToolFailureKind } from "./types";
 
 const AI_AUDIT_COLLECTION = "aiAuditLog";
@@ -106,7 +107,7 @@ export async function recordAiActions(
     // rather than assumed, since a null would silently write to
     // hotels/undefined.
     if (!ctx.hotelId) {
-      console.error("AI audit skipped: no hotel in context");
+      logProblem("audit_no_hotel");
       return;
     }
 
@@ -125,7 +126,7 @@ export async function recordAiActions(
 
     await batch.commit();
   } catch (err) {
-    console.error("AI audit log write failed:", err);
+    logInternalError("audit_write", err, { events: events.length });
   }
 }
 

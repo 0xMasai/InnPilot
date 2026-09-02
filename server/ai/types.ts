@@ -150,6 +150,16 @@ export interface ToolCallRecord {
 /** Structured result returned by the Gateway to the client. */
 export interface AgentResponse {
   conversationId: string;
+  /**
+   * The id every log line of this request carries (Phase 13). Optional
+   * only because the Orchestrator, which builds the rest of this object,
+   * has no reason to know it — the Gateway adds it on the way out, and a
+   * response that reached a client always has one.
+   *
+   * It exists so a user can quote something when reporting a bad turn. It
+   * identifies a request, not a person, and grants nothing.
+   */
+  requestId?: string;
   reply: string;
   toolCalls: ToolCallRecord[];
   /** Set when a write tool needs the user to confirm before executing. */
