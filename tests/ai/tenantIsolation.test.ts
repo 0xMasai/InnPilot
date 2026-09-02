@@ -16,6 +16,9 @@ const fetchEvents = vi.fn(async () => []);
 const fetchExpenses = vi.fn(async () => []);
 const fetchReservations = vi.fn(async () => []);
 const fetchRoomsWithIds = vi.fn(async () => []);
+// Not a per-tool fetcher: the prompt names the hotel. Mocked so the module
+// shape matches, but deliberately absent from `allFetchers` below.
+const fetchHotelName = vi.fn(async () => null);
 const fetchMetricsInput = vi.fn(async () => ({
   bookings: [],
   orders: [],
@@ -35,6 +38,7 @@ vi.mock("../../server/ai/tools/dataAccess", () => ({
   fetchReservations,
   fetchRoomsWithIds,
   fetchMetricsInput,
+  fetchHotelName,
 }));
 
 const { registerReadTools } = await import("../../server/ai/tools/index");

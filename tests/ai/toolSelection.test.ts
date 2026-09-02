@@ -48,6 +48,7 @@ vi.mock("../../server/ai/tools/dataAccess", async () => {
     fetchEvents: async () => [],
     fetchExpenses: async () => [],
     fetchReservations: async () => [],
+    fetchHotelName: async () => null,
   };
 });
 

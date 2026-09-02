@@ -47,6 +47,7 @@ vi.mock("../../server/ai/tools/dataAccess", () => ({
   fetchEvents: async () => [],
   fetchExpenses: async () => [],
   fetchReservations: async () => [],
+  fetchHotelName: async () => null,
   fetchRoomsWithIds: async () => [{ number: "204", type: "Double", status: "Occupied" }],
   fetchMetricsInput: async () => ({
     bookings: [],

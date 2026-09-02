@@ -105,3 +105,24 @@ export async function fetchMetricsInput(hotelId: string): Promise<MetricsInput> 
   ]);
   return { bookings, orders, events, expenses, rooms };
 }
+
+/**
+ * The hotel's display name, for the prompt's session context.
+ *
+ * Never load-bearing: the prompt falls back to "this hotel" when this
+ * returns null, so a missing document, a hotel with no name, or a read
+ * failure costs a nicety and never a turn. Cached with every other read
+ * in the turn, so naming the hotel does not add a round-trip to a
+ * question that already touches Firestore.
+ */
+export function fetchHotelName(hotelId: string): Promise<string | null> {
+  return cachedRead(`${hotelId}#name`, async () => {
+    try {
+      const snap = await db.collection("hotels").doc(hotelId).get();
+      const name = snap.data()?.name;
+      return typeof name === "string" && name.trim() ? name.trim() : null;
+    } catch {
+      return null;
+    }
+  });
+}
