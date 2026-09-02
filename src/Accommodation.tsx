@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import {
   addDoc,
@@ -82,11 +82,14 @@ const toRoomInventory = (room: Room) => ({
 /** Shared derivation (lib/metrics) keeps this page consistent with dashboards. */
 const bookingStatus = (b: Booking): BookingStatus => bookingStatusOf(b);
 
-const toDate = (v: any): Date | null => {
+const toDate = (v: unknown): Date | null => {
   if (!v) return null;
   if (v instanceof Timestamp) return v.toDate();
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+  if (typeof v === "string" || typeof v === "number" || v instanceof Date) {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 };
 
 const statusBadge: Record<BookingStatus, string> = {
@@ -212,22 +215,25 @@ export default function AccommodationDashboard() {
   const stays = useMemo(() => [...bookings, ...reservations], [bookings, reservations]);
 
   /** Bookings that block the given room for the given period. */
-  const findConflict = (roomNumber: string, checkIn: Date, checkOut: Date) =>
-    bookingOverlaps(roomNumber, checkIn, checkOut, stays as PMSBookingLike[]) as
-      | Booking
-      | undefined;
+  const findConflict = useCallback(
+    (roomNumber: string, checkIn: Date, checkOut: Date) =>
+      bookingOverlaps(roomNumber, checkIn, checkOut, stays as PMSBookingLike[]) as
+        | Booking
+        | undefined,
+    [stays]
+  );
 
-  const roomIsUnavailableForDates = (room: Room) => {
+  const roomIsUnavailableForDates = useCallback((room: Room) => {
     const checkIn = formData.checkIn instanceof Date ? formData.checkIn : null;
     const checkOut = formData.checkOut instanceof Date ? formData.checkOut : null;
     if (room.status === "Maintenance" || room.status === "Out of Service") return true;
     if (!checkIn || !checkOut || checkOut <= checkIn) return false;
     return Boolean(findConflict(room.number, checkIn, checkOut));
-  };
+  }, [formData.checkIn, formData.checkOut, findConflict]);
 
   const availableRooms = useMemo(
     () => rooms.filter((room) => !roomIsUnavailableForDates(room)),
-    [rooms, stays, formData.checkIn, formData.checkOut]
+    [rooms, roomIsUnavailableForDates]
   );
 
   // Submit booking
@@ -359,12 +365,12 @@ export default function AccommodationDashboard() {
     }
   };
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: unknown) => {
     const d = toDate(timestamp);
     return d ? d.toLocaleString() : "-";
   };
 
-  const formatDateShort = (timestamp: any) => {
+  const formatDateShort = (timestamp: unknown) => {
     const d = toDate(timestamp);
     return d ? d.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" }) : "-";
   };

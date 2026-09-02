@@ -3,21 +3,17 @@ import { getDocsFromServer, onSnapshot } from "firebase/firestore";
 import { CalendarPlus, Search } from "lucide-react";
 import { COLLECTIONS, ACTIVE_BOOKING_STATUSES, type BookingStatus } from "../../lib/collections";
 import { hotelCollection } from "../../lib/hotelScope";
-import { availableRoomsForStay, bookableRooms, toPMSDate, money } from "../../lib/pms";
+import { availableRoomsForStay, bookableRooms, toPMSDate, money, type PMSBookingLike } from "../../lib/pms";
 import { useAuth } from "../../auth/AuthProvider";
 import {
   createReservation as createReservationService,
   updateReservationStatus as updateReservationStatusService,
 } from "../../lib/reservationService";
 
-interface Booking {
+interface Booking extends PMSBookingLike {
   id?: string;
   reservationId?: string;
-  roomNumber?: string;
-  guestName?: string;
   roomType?: string;
-  checkIn?: any;
-  checkOut?: any;
   status?: BookingStatus;
 }
 

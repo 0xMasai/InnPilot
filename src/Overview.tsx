@@ -286,7 +286,7 @@ export default function OverviewDashboard() {
                 width={64}
                 tickFormatter={(v) => Number(v).toLocaleString()}
               />
-              <Tooltip formatter={(v: any) => ugx(Number(v))} />
+              <Tooltip formatter={(v: unknown) => ugx(Number(v))} />
               <Legend />
               <Line
                 type="monotone"
@@ -327,7 +327,7 @@ export default function OverviewDashboard() {
                 width={64}
                 tickFormatter={(v) => Number(v).toLocaleString()}
               />
-              <Tooltip formatter={(v: any) => ugx(Number(v))} />
+              <Tooltip formatter={(v: unknown) => ugx(Number(v))} />
               <Bar dataKey="revenue" name="Revenue" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={56} />
             </BarChart>
           </ResponsiveContainer>

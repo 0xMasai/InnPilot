@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getDocs,
   query,
@@ -34,7 +34,7 @@ interface AccommodationRecord {
 const PAGE_SIZE = 10;
 
 export default function AdminAccommodationDashboard() {
-  const { hotelId } = useAuth();
+  const { hotelId, user } = useAuth();
   const [records, setRecords] = useState<AccommodationRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<AccommodationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +60,7 @@ export default function AdminAccommodationDashboard() {
     setEditData(null);
   };
 
-  const handleEditChange = (field: keyof AccommodationRecord, value: any) => {
+  const handleEditChange = (field: keyof AccommodationRecord, value: unknown) => {
     if (!editData) return;
     setEditData({ ...editData, [field]: value });
   };
@@ -191,12 +191,11 @@ export default function AdminAccommodationDashboard() {
   // };
 
   // Fetch first page
-  const fetchRecords = async () => {
+  const fetchRecords = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const user = auth.currentUser;
       if (!user) throw new Error("User not authenticated.");
       if (!hotelId) throw new Error("No hotel context — please sign in again.");
 
@@ -204,18 +203,18 @@ export default function AdminAccommodationDashboard() {
       const snapshot = await getDocs(q);
 
       const data: AccommodationRecord[] = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data() as any;
+        const d = docSnap.data() as Record<string, unknown>;
         return {
           id: docSnap.id,
-          guestName: d.guestName ?? "",
-          guestEmail: d.guestEmail ?? "",
-          roomType: d.roomType ?? "",
-          numberOfGuests: d.numberOfGuests ?? 0,
-          checkIn: d.checkIn?.toDate?.()?.toLocaleString() ?? "",
-          checkOut: d.checkOut?.toDate?.()?.toLocaleString() ?? "",
-          pricePaid: d.pricePaid ?? 0,
-          paymentStatus: d.paymentStatus ?? "",
-          notes: d.notes ?? "",
+          guestName: (d.guestName as string) ?? "",
+          guestEmail: (d.guestEmail as string) ?? "",
+          roomType: (d.roomType as string) ?? "",
+          numberOfGuests: (d.numberOfGuests as number) ?? 0,
+          checkIn: (d.checkIn as { toDate?: () => Date })?.toDate?.()?.toLocaleString() ?? "",
+          checkOut: (d.checkOut as { toDate?: () => Date })?.toDate?.()?.toLocaleString() ?? "",
+          pricePaid: (d.pricePaid as number) ?? 0,
+          paymentStatus: (d.paymentStatus as string) ?? "",
+          notes: (d.notes as string) ?? "",
         };
       });
 
@@ -223,12 +222,12 @@ export default function AdminAccommodationDashboard() {
       setFilteredRecords(data);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [hotelId]);
 
   // Load more
   const loadMore = async () => {
@@ -247,18 +246,18 @@ export default function AdminAccommodationDashboard() {
       const snapshot = await getDocs(q);
 
       const data: AccommodationRecord[] = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data() as any;
+        const d = docSnap.data() as Record<string, unknown>;
         return {
           id: docSnap.id,
-          guestName: d.guestName ?? "",
-          guestEmail: d.guestEmail ?? "",
-          roomType: d.roomType ?? "",
-          numberOfGuests: d.numberOfGuests ?? 0,
-          checkIn: d.checkIn?.toDate?.()?.toLocaleString() ?? "",
-          checkOut: d.checkOut?.toDate?.()?.toLocaleString() ?? "",
-          pricePaid: d.pricePaid ?? 0,
-          paymentStatus: d.paymentStatus ?? "",
-          notes: d.notes ?? "",
+          guestName: (d.guestName as string) ?? "",
+          guestEmail: (d.guestEmail as string) ?? "",
+          roomType: (d.roomType as string) ?? "",
+          numberOfGuests: (d.numberOfGuests as number) ?? 0,
+          checkIn: (d.checkIn as { toDate?: () => Date })?.toDate?.()?.toLocaleString() ?? "",
+          checkOut: (d.checkOut as { toDate?: () => Date })?.toDate?.()?.toLocaleString() ?? "",
+          pricePaid: (d.pricePaid as number) ?? 0,
+          paymentStatus: (d.paymentStatus as string) ?? "",
+          notes: (d.notes as string) ?? "",
         };
       });
 
@@ -266,8 +265,8 @@ export default function AdminAccommodationDashboard() {
       setFilteredRecords((prev) => [...prev, ...data]);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err as Error).message);
     } finally {
       setLoadingMore(false);
     }
@@ -306,7 +305,7 @@ export default function AdminAccommodationDashboard() {
     });
 
     return () => unsub();
-  }, [hotelId]);
+  }, [hotelId, fetchRecords]);
 
   return (
     <div className="space-y-6">

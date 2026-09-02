@@ -331,13 +331,13 @@ export default function RestaurantDashboard() {
             <Search size={16} />
             <input type="text" aria-label="Search orders" placeholder="Search by client or order…" value={search} onChange={(e) => setSearch(e.target.value)} className="input" />
           </div>
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value as any)} className="select" aria-label="Category">
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value as "All" | typeof categories[number])} className="select" aria-label="Category">
             <option value="All">All categories</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="select" aria-label="Order status">
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as OrderStatus | "All")} className="select" aria-label="Order status">
             <option value="All">All statuses</option>
             <option value="Open">Open</option>
             <option value="Served">Served</option>

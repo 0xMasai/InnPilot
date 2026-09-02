@@ -42,7 +42,7 @@ type NotificationItem = {
     | "Conference Booking"
     | "Expense Entry";
   timestamp: Date;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
   summary?: string;
 };
 
@@ -331,8 +331,8 @@ const DashboardShell: React.FC = () => {
 
   // Convert Firestore data into readable summary.
   // Field names below match the documents each module actually writes.
-  const generateSummary = (type: NotificationItem["type"], data: any) => {
-    const ugx = (v: any) => Number(v || 0).toLocaleString();
+  const generateSummary = (type: NotificationItem["type"], data: Record<string, unknown>) => {
+    const ugx = (v: unknown) => Number(v || 0).toLocaleString();
     switch (type) {
       case "Restaurant Order":
         return `${data.clientName ?? "A client"} ordered ${data.category ?? "an item"} @ UGX ${ugx(data.price)}`;
@@ -419,7 +419,7 @@ const DashboardShell: React.FC = () => {
               type: src.label as NotificationItem["type"],
               timestamp: new Date(),
               data,
-              summary: generateSummary(src.label as any, data),
+              summary: generateSummary(src.label as NotificationItem["type"], data),
             };
 
             setNotifications((prev) => [newItem, ...prev]);
@@ -536,7 +536,7 @@ const DashboardShell: React.FC = () => {
       {/* MAIN CONTENT */}
       <div
         className="flex flex-col flex-1 min-h-0 min-w-0 ml-0 md:ml-[var(--rail-offset)] transition-all duration-300"
-        style={{ ["--rail-offset" as any]: `${collapsed ? sidebarWidthCollapsed : sidebarWidthExpanded}px` }}
+        style={{ "--rail-offset": `${collapsed ? sidebarWidthCollapsed : sidebarWidthExpanded}px` } as React.CSSProperties}
       >
           {/* HEADER */}
           <header

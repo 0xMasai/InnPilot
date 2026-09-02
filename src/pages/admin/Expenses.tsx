@@ -39,6 +39,16 @@ export default function AdminExpensesDashboard() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<Expense | null>(null);
 
+  const toDateIso = (value: unknown): string => {
+    if (!value || typeof value !== "object") return "";
+    const maybe = value as { toDate?: () => Date };
+    if (typeof maybe.toDate === "function") {
+      const date = maybe.toDate();
+      return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+    }
+    return "";
+  };
+
   // Fetch expenses and map user names
  useEffect(() => {
   if (!hotelId) return;
@@ -47,13 +57,15 @@ export default function AdminExpensesDashboard() {
   const unsub = onSnapshot(q, async (snapshot) => {
     const data: Expense[] = await Promise.all(
       snapshot.docs.map(async (docSnap) => {
-        const raw = docSnap.data() as any;
-        // Expenses are written with `createdAt` (Timestamp); derive the `date`
-        // string the UI expects so dates aren't "Invalid Date".
-        const exp = {
-          ...(raw as Expense),
+        const raw = docSnap.data() as Record<string, unknown>;
+        const exp: Expense = {
           id: docSnap.id,
-          date: raw.date || raw.createdAt?.toDate?.()?.toISOString() || "",
+          department: typeof raw.department === "string" ? raw.department : "",
+          description: typeof raw.description === "string" ? raw.description : "",
+          amount: typeof raw.amount === "number" ? raw.amount : Number(raw.amount ?? 0),
+          date: typeof raw.date === "string" ? raw.date : toDateIso(raw.createdAt),
+          notes: typeof raw.notes === "string" ? raw.notes : "",
+          userId: typeof raw.userId === "string" ? raw.userId : "",
         };
 
         // Use createdByName from expense first

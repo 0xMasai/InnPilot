@@ -10,6 +10,14 @@ import { logAction } from "./lib/audit";
 import { Plus, X, Printer, Search, PieChart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
+const toDateIso = (value: unknown): string => {
+  if (!value || typeof value !== "object") return "";
+  const timestamp = value as { toDate?: () => Date };
+  if (typeof timestamp.toDate !== "function") return "";
+  const date = timestamp.toDate();
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+};
+
 interface Expense {
   id?: string;
   department: string;
@@ -48,12 +56,16 @@ export default function ExpensesDashboard() {
     const q = hotelCollection(hotelId, COLLECTIONS.EXPENSES);
 
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((doc) => {
-        const raw = doc.data() as any;
+      const data: Expense[] = snap.docs.map((doc) => {
+        const raw = doc.data() as Record<string, unknown>;
         return {
           id: doc.id,
-          ...raw,
-          expenseDate: raw.createdAt?.toDate()?.toISOString() || "",
+          department: typeof raw.department === "string" ? raw.department : "",
+          description: typeof raw.description === "string" ? raw.description : "",
+          amount: typeof raw.amount === "number" ? raw.amount : Number(raw.amount ?? 0),
+          expenseDate: toDateIso(raw.createdAt) || (typeof raw.date === "string" ? raw.date : ""),
+          notes: typeof raw.notes === "string" ? raw.notes : undefined,
+          userId: typeof raw.userId === "string" ? raw.userId : "",
         };
       });
 

@@ -171,7 +171,7 @@ export default function ReportsDashboard() {
         const rows = combinedData.bookings
           .filter((b) => inRange(bookingDate(b), range))
           .sort((a, b) => (bookingDate(a)?.getTime() ?? 0) - (bookingDate(b)?.getTime() ?? 0))
-          .map((b: any) => [
+          .map((b) => [
             String(b.roomNumber ?? "-"),
             b.guestName ?? "-",
             b.roomType ?? "-",
@@ -200,7 +200,7 @@ export default function ReportsDashboard() {
           : 0;
         const rows = inPeriod
           .sort((a, b) => (orderDate(a)?.getTime() ?? 0) - (orderDate(b)?.getTime() ?? 0))
-          .map((o: any) => [
+          .map((o) => [
             o.clientName ?? "-",
             o.orderDetails ?? "-",
             o.category ?? "-",
@@ -224,7 +224,7 @@ export default function ReportsDashboard() {
         const inPeriod = data.events.filter((e) => inRange(eventDate(e), range));
         const rows = inPeriod
           .sort((a, b) => (eventDate(a)?.getTime() ?? 0) - (eventDate(b)?.getTime() ?? 0))
-          .map((e: any) => [
+          .map((e) => [
             e.organizerName ?? "-",
             e.room ?? "-",
             e.durationHours ? `${e.durationHours}h` : "-",
@@ -246,13 +246,13 @@ export default function ReportsDashboard() {
         // Category totals for the KPI strip.
         const byDept = new Map<string, number>();
         for (const x of inPeriod) {
-          const k = (x as any).department || "Other";
+          const k = (x as Record<string, unknown>).department as string || "Other";
           byDept.set(k, (byDept.get(k) ?? 0) + (Number(x.amount) || 0));
         }
         const top = [...byDept.entries()].sort((a, b) => b[1] - a[1])[0];
         const rows = inPeriod
           .sort((a, b) => (expenseDate(a)?.getTime() ?? 0) - (expenseDate(b)?.getTime() ?? 0))
-          .map((x: any) => [
+          .map((x) => [
             x.department ?? "-",
             x.description ?? "-",
             ugx(Number(x.amount) || 0),

@@ -34,8 +34,11 @@ export interface BookingRecord {
 }
 
 export interface OrderRecord {
-  price?: number;
+  clientName?: string;
+  orderDetails?: string;
   category?: string;
+  price?: number;
+  paymentMethod?: string;
   status?: string;
   createdAt?: unknown;
   timestamp?: unknown;
@@ -46,13 +49,19 @@ export const isRevenueOrder = (o: OrderRecord): boolean =>
   (o.status ?? "Paid") !== "Cancelled";
 
 export interface EventRecord {
+  organizerName?: string;
+  room?: string;
+  durationHours?: number;
   price?: number;
   createdAt?: unknown;
+  timestamp?: unknown;
 }
 
 export interface ExpenseRecord {
   amount?: number;
   department?: string;
+  description?: string;
+  notes?: string;
   createdAt?: unknown;
   timestamp?: unknown;
   date?: unknown;
@@ -71,16 +80,19 @@ export const toDateSafe = (v: unknown): Date | null => {
   // than by `instanceof Timestamp`, so this module stays free of the client
   // SDK: the AI tools run on firebase-admin, whose Timestamp is a different
   // class, and both satisfy the duck-typed check.
-  if (typeof v === "object" && typeof (v as any).toDate === "function") {
+  if (v && typeof v === "object" && "toDate" in v && typeof (v as { toDate: () => unknown }).toDate === "function") {
     try {
-      const d = (v as any).toDate();
+      const d = (v as { toDate: () => unknown }).toDate();
       return d instanceof Date && !isNaN(d.getTime()) ? d : null;
     } catch {
       return null;
     }
   }
-  const d = new Date(v as any);
-  return isNaN(d.getTime()) ? null : d;
+  if (typeof v === "string" || typeof v === "number" || v instanceof Date) {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 };
 
 export type DatePreset = "today" | "week" | "month" | "lastMonth" | "all";

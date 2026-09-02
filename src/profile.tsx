@@ -38,10 +38,12 @@ const FIELDS = {
 
 export default function ProfileDashboard() {
   const { hotelId } = useAuth();
-  const [accommodationData, setAccommodationData] = useState<any[]>([]);
-  const [conferenceData, setConferenceData] = useState<any[]>([]);
-  const [expensesData, setExpensesData] = useState<any[]>([]);
-  const [restaurantData, setRestaurantData] = useState<any[]>([]);
+  type TableRow = Record<string, unknown> & { id?: string };
+
+  const [accommodationData, setAccommodationData] = useState<TableRow[]>([]);
+  const [conferenceData, setConferenceData] = useState<TableRow[]>([]);
+  const [expensesData, setExpensesData] = useState<TableRow[]>([]);
+  const [restaurantData, setRestaurantData] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const navigate = useNavigate();
@@ -158,7 +160,7 @@ const TableSection = ({
 }: {
   icon: React.ReactNode;
   title: string;
-  data: any[];
+  data: Array<Record<string, unknown> & { id?: string }>;
   fields: string[];
 }) => {
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
@@ -207,20 +209,23 @@ const TableSection = ({
               </tr>
             </thead>
             <tbody>
-              {filteredData.slice(0, visibleCount).map((item) => (
+              {filteredData.slice(0, visibleCount).map((item, index) => (
                 <tr
-                  key={item.id}
+                  key={String(item.id ?? index)}
                   className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                 >
                   {fields.map((field) => {
                     const value = item[field];
                     // Format timestamps nicely
-                    if (value instanceof Object && "toDate" in value) {
-                      return (
-                        <td key={field} className="py-2 px-4 whitespace-nowrap">
-                          {value.toDate().toLocaleString()}
-                        </td>
-                      );
+                    if (value && typeof value === "object" && "toDate" in value) {
+                      const dateish = value as { toDate?: () => Date };
+                      if (typeof dateish.toDate === "function") {
+                        return (
+                          <td key={field} className="py-2 px-4 whitespace-nowrap">
+                            {dateish.toDate().toLocaleString()}
+                          </td>
+                        );
+                      }
                     }
                     return (
                       <td key={field} className="py-2 px-4 truncate max-w-[200px] whitespace-nowrap">

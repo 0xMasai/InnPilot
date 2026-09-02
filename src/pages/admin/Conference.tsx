@@ -43,6 +43,16 @@ export default function AdminConferenceRoomDashboard() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<Booking | null>(null);
 
+  const toDateIso = (value: unknown): string => {
+    if (!value || typeof value !== "object") return "";
+    const maybe = value as { toDate?: () => Date };
+    if (typeof maybe.toDate === "function") {
+      const date = maybe.toDate();
+      return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+    }
+    return "";
+  };
+
   // Fetch bookings
   useEffect(() => {
     if (!auth.currentUser || !hotelId) return;
@@ -50,14 +60,20 @@ export default function AdminConferenceRoomDashboard() {
     const ref = hotelCollection(hotelId, "conferenceRooms");
 
     const unsub = onSnapshot(ref, (snapshot) => {
-      const data = snapshot.docs.map((d) => {
-        const raw = d.data() as any;
+      const data: Booking[] = snapshot.docs.map((d) => {
+        const raw = d.data() as Record<string, unknown>;
         return {
           id: d.id,
-          ...(raw as Booking),
-          // Bookings are written with `createdAt` (Timestamp); derive the
-          // `dateTime` string the UI expects so dates aren't "Invalid Date".
-          dateTime: raw.dateTime || raw.createdAt?.toDate?.()?.toISOString() || "",
+          room: typeof raw.room === "string" ? raw.room : "",
+          organizerName: typeof raw.organizerName === "string" ? raw.organizerName : "",
+          email: typeof raw.email === "string" ? raw.email : "",
+          attendees: typeof raw.attendees === "number" ? raw.attendees : Number(raw.attendees ?? 0),
+          dateTime: typeof raw.dateTime === "string" ? raw.dateTime : toDateIso(raw.createdAt),
+          durationHours: typeof raw.durationHours === "number" ? raw.durationHours : Number(raw.durationHours ?? 0),
+          notes: typeof raw.notes === "string" ? raw.notes : "",
+          price: typeof raw.price === "number" ? raw.price : Number(raw.price ?? 0),
+          userId: typeof raw.userId === "string" ? raw.userId : "",
+          createdAt: typeof raw.createdAt === "string" ? raw.createdAt : toDateIso(raw.createdAt),
         };
       });
 

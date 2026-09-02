@@ -43,7 +43,7 @@ const LoginPage = () => {
 
       localStorage.setItem("user", JSON.stringify({ uid: user.uid, email: user.email }));
       navigate("/dashboard");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       setError("Invalid email or password. Please try again.");
     } finally {

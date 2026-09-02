@@ -101,7 +101,7 @@ export default function AuditLogDashboard() {
           </div>
           <select
             value={filterEntity}
-            onChange={(e) => setFilterEntity(e.target.value as any)}
+            onChange={(e) => setFilterEntity(e.target.value as AuditEntity | "All")}
             className="select lg:w-56"
             aria-label="Entity type"
           >

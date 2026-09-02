@@ -3,16 +3,25 @@ import { onSnapshot } from "firebase/firestore";
 import { CalendarCheck2, LogIn, LogOut } from "lucide-react";
 import { COLLECTIONS } from "../../lib/collections";
 import { hotelCollection } from "../../lib/hotelScope";
-import { toPMSDate, isSameDay, money } from "../../lib/pms";
+import { toPMSDate, isSameDay, money, type PMSBookingLike } from "../../lib/pms";
 import { useAuth } from "../../auth/AuthProvider";
 
-type Booking = { id: string; guestName?: string; roomNumber?: string; checkIn?: any; checkOut?: any; status?: string; pricePaid?: number; paymentStatus?: string };
+type Booking = {
+  id: string;
+  guestName?: string;
+  roomNumber?: string;
+  checkIn?: PMSBookingLike["checkIn"];
+  checkOut?: PMSBookingLike["checkOut"];
+  status?: string;
+  pricePaid?: number;
+  paymentStatus?: string;
+};
 
 export default function FrontDesk() {
   const { hotelId } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const today = new Date();
+  const today = useMemo(() => new Date(), []);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -32,8 +41,8 @@ export default function FrontDesk() {
     );
   }, [hotelId]);
 
-  const arrivals = useMemo(() => bookings.filter((b) => b.status === "Confirmed" && isSameDay(toPMSDate(b.checkIn), today)), [bookings]);
-  const departures = useMemo(() => bookings.filter((b) => b.status === "Checked In" && isSameDay(toPMSDate(b.checkOut), today)), [bookings]);
+  const arrivals = useMemo(() => bookings.filter((b) => b.status === "Confirmed" && isSameDay(toPMSDate(b.checkIn), today)), [bookings, today]);
+  const departures = useMemo(() => bookings.filter((b) => b.status === "Checked In" && isSameDay(toPMSDate(b.checkOut), today)), [bookings, today]);
   const inHouse = useMemo(() => bookings.filter((b) => b.status === "Checked In"), [bookings]);
   const outstanding = useMemo(() => bookings.filter((b) => b.status === "Checked In" || b.status === "Confirmed").reduce((sum, b) => sum + (b.paymentStatus === "Paid" ? 0 : Number(b.pricePaid || 0)), 0), [bookings]);
 

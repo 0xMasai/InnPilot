@@ -1,0 +1,54 @@
+src/Accommodation.tsx(30,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/AuditLog.tsx(8,93): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/auth/ProtectedRoute.tsx(6,23): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Conference.tsx(10,60): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/dashboard.tsx(23,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Expenses.tsx(10,52): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Guests.tsx(11,52): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Overview.tsx(14,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/admin/Accommodation.tsx(19,55): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/admin/Conference.tsx(18,55): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/admin/Expenses.tsx(16,46): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/admin/Restaurant.tsx(10,54): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/book-demo.tsx(11,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/home.tsx(25,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/login.tsx(7,63): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/pms/AskInnPilot.tsx(26,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/pms/FrontDesk.tsx(3,47): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/pms/Reservations.tsx(3,38): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/pms/RoomBoard.tsx(3,56): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/super-admin/HotelDetail.tsx(13,53): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/super-admin/Hotels.tsx(5,67): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/super-admin/Overview.tsx(4,55): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/pages/super-admin/SuperAdminShell.tsx(11,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/profile.tsx(7,68): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Reports.tsx(20,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Restaurant.tsx(18,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+src/Users.tsx(11,78): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/DELL/Desktop/InnPilot/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
