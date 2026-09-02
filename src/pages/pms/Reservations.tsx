@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDoc, getDoc, getDocsFromServer, onSnapshot, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
+import { getDocsFromServer, onSnapshot } from "firebase/firestore";
 import { CalendarPlus, Search } from "lucide-react";
 import { COLLECTIONS, ACTIVE_BOOKING_STATUSES, type BookingStatus } from "../../lib/collections";
-import { hotelCollection, hotelDoc, hotelDocRef } from "../../lib/hotelScope";
-import { bookingOverlaps, bookingDays, toPMSDate, money } from "../../lib/pms";
+import { hotelCollection } from "../../lib/hotelScope";
+import { bookableRooms, toPMSDate, money } from "../../lib/pms";
 import { useAuth } from "../../auth/AuthProvider";
+import {
+  createReservation as createReservationService,
+  updateReservationStatus as updateReservationStatusService,
+} from "../../lib/reservationService";
 
 interface Booking {
   id?: string;
@@ -25,13 +29,17 @@ interface Room {
   status: string;
 }
 
-const makeReservationId = () => {
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const suffix = typeof crypto !== "undefined" && crypto.randomUUID
-    ? crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase()
-    : Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `RSV-${stamp}-${suffix}`;
-};
+/** The page's Booking rows already satisfy the service's conflict-check shape. */
+const toContextBooking = (b: Booking) => ({
+  id: b.id ?? "",
+  reservationId: b.reservationId,
+  roomNumber: b.roomNumber,
+  guestName: b.guestName,
+  roomType: b.roomType,
+  status: b.status,
+  checkIn: b.checkIn,
+  checkOut: b.checkOut,
+});
 
 export default function Reservations() {
   const { hotelId, user, role, loading: authLoading } = useAuth();
@@ -192,36 +200,13 @@ export default function Reservations() {
     };
   }, [hotelId, role, user?.uid]);
 
-  const availableRooms = useMemo(
-    () => rooms.filter((r) => r.status !== "Maintenance" && r.status !== "Out of Service"),
-    [rooms]
-  );
+  const availableRooms = useMemo(() => bookableRooms(rooms), [rooms]);
 
   const updateReservationStatus = async (booking: Booking, status: BookingStatus) => {
     if (!hotelId || !booking.id || (role !== "hotel_admin" && role !== "staff")) return;
     setError("");
-    try {
-      await updateDoc(hotelDoc(hotelId, COLLECTIONS.RESERVATIONS, booking.id), { status });
-      console.info("Reservation updated", {
-        uid: user?.uid,
-        role,
-        hotelId,
-        path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}/${booking.id}`,
-        status,
-      });
-    } catch (e: any) {
-      const code = e?.code || "unknown";
-      console.error("Reservation update failed", {
-        code,
-        message: e?.message || String(e),
-        uid: user?.uid,
-        role,
-        hotelId,
-        path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}/${booking.id}`,
-        status,
-      });
-      setError(code === "permission-denied" ? "Firestore denied this reservation update." : e?.message || "Reservation could not be updated.");
-    }
+    const result = await updateReservationStatusService(hotelId, booking.id, status);
+    if (!result.ok) setError(result.error);
   };
 
   const createReservation = async () => {
@@ -233,93 +218,41 @@ export default function Reservations() {
       return setError("Your account is not approved for hotel operations.");
     }
     if (!hotelId) return setError("Your account has no hotel assigned. Ask an administrator to assign your hotel.");
-    if (!guestName.trim() || !roomNumber || !checkIn || !checkOut) {
-      return setError("Guest, room, check-in and check-out are required.");
-    }
-
-    const start = new Date(`${checkIn}T14:00:00`);
-    const end = new Date(`${checkOut}T11:00:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      return setError("Check-out must be after check-in.");
-    }
-
-    const room = rooms.find((r) => r.number === roomNumber);
-    if (!room) return setError("Select a valid room from this hotel's inventory.");
-    if (room.status === "Maintenance" || room.status === "Out of Service") {
-      return setError(`Room ${room.number} is unavailable for reservations.`);
-    }
-
-    // Check both the new reservation collection and legacy accomodation
-    // records so migration does not introduce double bookings.
-    const conflict = bookingOverlaps(roomNumber, start, end, [...bookings, ...legacyBookings]);
-    if (conflict) {
-      return setError(`Room ${roomNumber} is already reserved for ${conflict.guestName || "another guest"}.`);
-    }
 
     setSaving(true);
     try {
-      const hotelSnap = await getDoc(hotelDocRef(hotelId));
-      if (!hotelSnap.exists()) {
-        throw new Error(`Hotel ${hotelId} does not exist.`);
-      }
-
-      const reservationId = makeReservationId();
-      const payload = {
-        reservationId,
-        guestName: guestName.trim(),
-        roomNumber,
-        roomType: room.type || "Room",
-        numberOfGuests: 1,
-        checkIn: Timestamp.fromDate(start),
-        checkOut: Timestamp.fromDate(end),
-        status: "Confirmed" as BookingStatus,
-        paymentStatus: "Pending" as const,
-        pricePaid: 0,
-        bookingSource: source,
-        ratePerNight: Number(room.price || 0),
-        totalAmount: Number(room.price || 0) * bookingDays(start, end),
+      // The live snapshots above are the conflict source, so creating a
+      // reservation from the UI still needs no extra reads.
+      const result = await createReservationService({
         hotelId,
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-      };
-
-      const path = `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}`;
-      const ref = await addDoc(hotelCollection(hotelId, COLLECTIONS.RESERVATIONS), payload);
-
-      console.info("Reservation created", {
         uid: user.uid,
-        role,
-        hotelId,
-        path: `${path}/${ref.id}`,
-        payloadKeys: Object.keys(payload),
-        status: payload.status,
+        guestName,
+        roomNumber,
+        checkIn,
+        checkOut,
+        bookingSource: source,
+        context: {
+          rooms: rooms.map((r) => ({
+            id: r.id ?? "",
+            number: r.number,
+            type: r.type,
+            price: r.price,
+            status: r.status,
+          })),
+          reservations: bookings.map(toContextBooking),
+          legacyBookings: legacyBookings.map(toContextBooking),
+        },
       });
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
       setGuestName("");
       setRoomNumber("");
       setCheckIn("");
       setCheckOut("");
-    } catch (e: any) {
-      const code = e?.code || "unknown";
-      console.error("Reservation creation failed", {
-        code,
-        message: e?.message || String(e),
-        uid: user.uid,
-        role,
-        hotelId,
-        path: `hotels/${hotelId}/${COLLECTIONS.RESERVATIONS}`,
-        status: "Confirmed",
-      });
-
-      if (code === "permission-denied") {
-        setError("Firestore denied this reservation. Confirm your account has the correct hotelId and role.");
-      } else if (code === "failed-precondition") {
-        setError("Firestore rejected the reservation because a required database precondition is not met.");
-      } else if (code === "unavailable") {
-        setError("Firestore is temporarily unavailable. Check your connection and try again.");
-      } else {
-        setError(e?.message || "Reservation could not be saved.");
-      }
     } finally {
       setSaving(false);
     }

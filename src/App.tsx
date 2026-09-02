@@ -26,9 +26,10 @@ import SuperAdminHotels from "./pages/super-admin/Hotels";
 import SuperAdminHotelDetail from "./pages/super-admin/HotelDetail";
 import { AuthProvider } from "./auth/AuthProvider";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import WebMCPProvider from "./webmcp/WebMCPProvider";
 
 function App() {
-  return <AuthProvider><Routes>
+  return <AuthProvider><WebMCPProvider><Routes>
     <Route path="/" element={<Navigate to="/login" replace />} />
     <Route path="/landing" element={<LandingPage />} />
     <Route path="/book-demo" element={<BookDemoPage />} />
@@ -61,7 +62,7 @@ function App() {
       <Route path="hotels/:hotelId" element={<SuperAdminHotelDetail />} />
     </Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
-  </Routes></AuthProvider>;
+  </Routes></WebMCPProvider></AuthProvider>;
 }
 
 export default App;

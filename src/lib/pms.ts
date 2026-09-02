@@ -70,6 +70,15 @@ export function bookingOverlaps(
   });
 }
 
+/**
+ * Rooms that can hold a reservation: maintenance and out-of-service rooms
+ * are never bookable. Shared by the Reservations page and the WebMCP
+ * availability tool so both apply the identical rule.
+ */
+export function bookableRooms<T extends { status: string }>(rooms: T[]): T[] {
+  return rooms.filter((room) => room.status !== "Maintenance" && room.status !== "Out of Service");
+}
+
 export function operationalStatus(room: PMSRoomLike): OperationalRoomStatus {
   return room.status === "Available" ? "Ready" : room.status;
 }
