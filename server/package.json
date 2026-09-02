@@ -1,0 +1,4 @@
+{
+  "//": "Forces CommonJS for the server/ tree when @vercel/node deploys it as serverless code. These modules use extensionless relative imports (tsconfig.server.json moduleResolution: bundler); Vercel ships them unbundled, and Node's ESM loader cannot resolve extensionless specifiers under the repo root's type:module. CommonJS require resolves them. The dev scripts here (dev-ai-server.ts, scripts/smoke.ts) run through tsx, which handles either module system.",
+  "type": "commonjs"
+}
