@@ -1,24 +1,19 @@
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["api/ai-chat.ts"],
-  outfile: "dist/api/ai-chat.js",
+  entryPoints: ["functions/ai-chat.ts"],
+  outfile: "api/ai-chat.js",
 
   bundle: true,
   platform: "node",
-  target: "node20",
-  format: "esm",
+  target: "node22",
+  format: "cjs",          // matches api/package.json {"type":"commonjs"}; inlines jose
+  sourcemap: false,
 
-  sourcemap: true,
-
-  external: [
-    "firebase-admin",
-    "node:*"
-  ],
-
-  banner: {
-    js: 'import { createRequire } from "module"; const require = createRequire(import.meta.url);'
-  }
+  // Inline firebase-admin (and jwks-rsa + jose) so there is NO runtime require(ESM).
+  // Externalize only the heavy Google Cloud packages esbuild can't bundle cleanly;
+  // they are CJS, have no jose problem, and Vercel includes them via require tracing.
+  external: ["@google-cloud/firestore", "@google-cloud/storage"],
 });
 
-console.log("✓ Bundled api/ai-chat");
+console.log("✓ Bundled functions/ai-chat.ts -> api/ai-chat.js");
