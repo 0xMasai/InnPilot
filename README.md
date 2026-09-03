@@ -116,7 +116,7 @@ hero**:
 - **Ask InnPilot (a separate product feature):** an in-app assistant backed by
   InnPilot's own server-side AI gateway (`user → Ask InnPilot → /api/ai-chat →
   tools → Firebase`). It's a nice part of the product, but it is **not** the
-  WebMCP feature and isn't required to judge this submission.
+  WebMCP feature and isn't required to judge this submission. It is **disabled in V1** — the in-app chat UI (route and nav) is commented out (code retained), so WebMCP is the only active AI surface.
 
 ---
 
@@ -179,7 +179,7 @@ live in the host's secret store (Vercel env vars), never in the repo.
   `hotels/{hotelId}/…`, with roles `super_admin` / `hotel_admin` / `staff` /
   `pending`.
 - **WebMCP:** browser-hosted tools over `document.modelContext` (this submission).
-- **Ask InnPilot (separate):** a Vercel serverless AI gateway at `/api/ai-chat`.
+- **Ask InnPilot (separate, disabled in V1):** a Vercel serverless AI gateway at `/api/ai-chat`; the in-app chat UI is commented out for V1 (code retained), so WebMCP is the shipped AI surface.
 
 Everything the agent touches goes through the same services, rules and audit
 trail as the human — which is the whole point.
