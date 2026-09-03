@@ -183,7 +183,7 @@ export function exportToPdf({
     alternateRowStyles: {
       fillColor: [248, 250, 252],
     },
-    didDrawPage: (data) => {
+    didDrawPage: () => {
       // Footer page numbering
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
