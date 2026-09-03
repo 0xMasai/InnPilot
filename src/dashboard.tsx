@@ -19,7 +19,7 @@ import {
   Users,
   FileText,
   ShieldCheck,
-  Sparkles,
+  // Sparkles, // Ask InnPilot disabled for V1 (kept for re-enable)
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Tippy from "@tippyjs/react";
@@ -68,7 +68,7 @@ const baseNav: NavGroup[] = [
     label: "Operations",
     items: [
       { icon: <LayoutDashboard size={19} />, label: "Overview", to: "/dashboard", end: true },
-      { icon: <Sparkles size={19} />, label: "Ask InnPilot", to: "/dashboard/ask" },
+      // { icon: <Sparkles size={19} />, label: "Ask InnPilot", to: "/dashboard/ask" }, // disabled for V1
       { icon: <BedDouble size={19} />, label: "Accommodation", to: "/dashboard/accommodation" },
       { icon: <Users size={19} />, label: "Guests", to: "/dashboard/guests" },
     ],
