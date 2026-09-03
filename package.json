@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "vite",
     "dev:ai": "node --env-file=.env --import tsx/esm server/dev-ai-server.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:api",
+    "build:api": "node scripts/build-api.mjs",
     "lint": "eslint .",
     "smoke": "node --env-file=.env --import tsx server/scripts/smoke.ts",
     "preview": "vite preview",
@@ -90,6 +91,7 @@
     "autoprefixer": "^10.4.22",
     "electron": "^39.2.3",
     "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.2",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",

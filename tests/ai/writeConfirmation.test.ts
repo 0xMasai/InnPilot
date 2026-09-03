@@ -24,6 +24,12 @@ vi.mock("../../server/ai/conversationManager", () => ({
 
 vi.mock("../../server/admin", () => ({ adminApp: {}, db: {} }));
 
+// Audit logging is exercised by auditLogging.test.ts; here it is stubbed so
+// these tests stay about the write/confirmation boundary alone.
+vi.mock("../../server/ai/auditLogger", () => ({
+  recordAiActions: async () => undefined,
+}));
+
 /** Every write that reached the data layer, in order. */
 const writes: { collection: string; docId: string; fields: Record<string, unknown> }[] = [];
 

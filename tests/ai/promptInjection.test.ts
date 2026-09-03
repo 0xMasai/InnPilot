@@ -20,6 +20,12 @@ const appendMessage = vi.fn(async () => undefined);
 const claimConversation = vi.fn(async () => undefined);
 const getRecentMessages = vi.fn(async () => [] as { role: string; content: string }[]);
 
+// Phase 12's audit writes are exercised in auditLogging.test.ts; without
+// this the trail would be written against a real Firestore handle.
+vi.mock("../../server/ai/auditLogger", () => ({
+  recordAiActions: async () => undefined,
+}));
+
 vi.mock("../../server/ai/conversationManager", () => ({
   appendMessage,
   claimConversation,

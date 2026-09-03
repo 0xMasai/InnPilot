@@ -25,6 +25,12 @@ const reads = { bookings: 0, rooms: 0, metrics: 0 };
 
 vi.mock("../../server/admin", () => ({ adminApp: {}, db: {} }));
 
+// Phase 12's audit writes are exercised in auditLogging.test.ts; here they
+// would just be Firestore calls against a stub db.
+vi.mock("../../server/ai/auditLogger", () => ({
+  recordAiActions: async () => undefined,
+}));
+
 vi.mock("../../server/ai/tools/dataAccess", async () => {
   const { cachedRead } = await import("../../server/ai/requestCache");
   return {

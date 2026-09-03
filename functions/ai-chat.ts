@@ -16,6 +16,7 @@
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AiChatError, handleAiChat } from "../server/ai/aiChat";
+import { logInternalError } from "../server/ai/logger";
 
 /**
  * Same-origin needs no CORS headers, so an unset ALLOWED_ORIGINS grants
@@ -70,12 +71,17 @@ export default async function handler(
     res.status(200).json(response);
   } catch (err) {
     if (err instanceof AiChatError) {
-      res.status(err.status).json({ error: err.message });
+      // `requestId` is the one thing a user can quote back: it finds every
+      // log line of the failed request and identifies nothing else.
+      res.status(err.status).json({ error: err.message, requestId: err.requestId });
       return;
     }
-    // Anything unexpected: log it server-side, tell the client nothing
-    // beyond "it failed" — error text can carry hotel data.
-    console.error("aiChat failed:", err);
+    // `handleAiChat` converts everything it sees into an AiChatError, so
+    // reaching here means the failure happened outside it — a malformed
+    // body the platform could not parse, a module that failed to load.
+    // Log it, and tell the client nothing beyond "it failed": error text
+    // can carry hotel data.
+    logInternalError("http_adapter", err);
     res.status(500).json({ error: "The assistant is unavailable right now." });
   }
 }

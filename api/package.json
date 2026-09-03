@@ -1,0 +1,4 @@
+{
+  "//": "Forces CommonJS for the Vercel serverless function(s) in api/. The repo root is type:module (ESM) for Vite, but @vercel/node deploys api/ and server/ as unbundled files, and Node's ESM loader rejects the extensionless relative imports the server tree uses (tsconfig.server.json moduleResolution: bundler). CommonJS require resolves them. See server/package.json.",
+  "type": "commonjs"
+}

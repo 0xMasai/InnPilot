@@ -29,9 +29,25 @@ export interface ToolCallRecord {
   reusedEarlierResult?: boolean;
 }
 
+/**
+ * How the message was produced (Phase 14). Mirrors `InputMode` in
+ * `server/ai/types.ts`.
+ *
+ * The server records it and acts on none of it: an agent that answered a
+ * spoken question differently from a typed one would be two agents to
+ * test, and only one of them would be the one the audit trail describes.
+ */
+export type InputMode = "text" | "voice";
+
 /** Mirrors `AgentResponse` in `server/ai/types.ts`. */
 export interface AgentResponse {
   conversationId: string;
+  /**
+   * Identifies this request in the gateway's logs (Phase 13). Optional
+   * because the type is shared with the Orchestrator's own return value,
+   * which predates the id; a response off the wire always carries one.
+   */
+  requestId?: string;
   reply: string;
   toolCalls: ToolCallRecord[];
   pendingConfirmation?: {
@@ -51,11 +67,19 @@ export interface AgentResponse {
 export class AiClientError extends Error {
   /** HTTP status, or 0 when the request never reached the server. */
   readonly status: number;
+  /**
+   * The gateway's id for the failed request, when it got far enough to
+   * have one. Shown to the user so a report of "it said it was
+   * unavailable" comes with the one string that finds the logs; absent for
+   * failures that never reached the server.
+   */
+  readonly requestId?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, requestId?: string) {
     super(message);
     this.name = "AiClientError";
     this.status = status;
+    this.requestId = requestId;
   }
 }
 
@@ -92,22 +116,25 @@ export async function askInnPilot(params: {
    * authorises, and this passes it back untouched.
    */
   confirmationId?: string;
+  /**
+   * Whether the user typed this or spoke it. Defaults to `text` server
+   * side when omitted, so a caller with nothing to say says nothing.
+   */
+  inputMode?: InputMode;
   signal?: AbortSignal;
 }): Promise<AgentResponse> {
+  // A real, verifiable Firebase ID token is required. There is no dev/mock
+  // token: the gateway verifies this server-side, so a fabricated one would
+  // only ever be refused.
   const user = auth.currentUser;
-  let idToken = "dev-mock-token";
-
-  if (user) {
-    try {
-      idToken = await user.getIdToken();
-    } catch {
-      throw new AiClientError(401, "Your session has expired. Sign in again.");
-    }
-  } else {
-    const localUser = localStorage.getItem("user");
-    if (!localUser) {
-      throw new AiClientError(401, "Sign in required.");
-    }
+  if (!user) {
+    throw new AiClientError(401, "Sign in required.");
+  }
+  let idToken: string;
+  try {
+    idToken = await user.getIdToken();
+  } catch {
+    throw new AiClientError(401, "Your session has expired. Sign in again.");
   }
 
   let response: Response;
@@ -122,6 +149,11 @@ export async function askInnPilot(params: {
         message: params.message,
         conversationId: params.conversationId,
         ...(params.confirmationId ? { confirmationId: params.confirmationId } : {}),
+        // Only sent when it is not the default: the gateway refuses an
+        // unrecognised value, so an omitted field is the safer silence.
+        ...(params.inputMode && params.inputMode !== "text"
+          ? { inputMode: params.inputMode }
+          : {}),
       }),
       signal: params.signal,
     });
@@ -137,13 +169,15 @@ export async function askInnPilot(params: {
   // sentence keeps a stray "<!DOCTYPE html>" out of the chat transcript.
   if (!response.ok) {
     let message = "The assistant is unavailable right now.";
+    let requestId: string | undefined;
     try {
-      const body = (await response.json()) as { error?: unknown };
+      const body = (await response.json()) as { error?: unknown; requestId?: unknown };
       if (typeof body.error === "string" && body.error) message = body.error;
+      if (typeof body.requestId === "string" && body.requestId) requestId = body.requestId;
     } catch {
       // Keep the fallback.
     }
-    throw new AiClientError(response.status, message);
+    throw new AiClientError(response.status, message, requestId);
   }
 
   try {

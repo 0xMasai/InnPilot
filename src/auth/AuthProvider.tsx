@@ -48,99 +48,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let unsubRole: (() => void) | undefined;
 
-    const syncLocal = () => {
-      const localUserStr = localStorage.getItem("user");
-      if (localUserStr) {
-        try {
-          const parsed = JSON.parse(localUserStr);
-          setUser({
-            uid: parsed.uid || "dev-admin-uid",
-            email: parsed.email || "admin@innpilot.com",
-            displayName: parsed.name || "Administrator",
-            emailVerified: true,
-            isAnonymous: false,
-            metadata: {},
-            providerData: [],
-            refreshToken: "",
-            tenantId: null,
-            delete: async () => {},
-            getIdToken: async () => "dev-token",
-            getIdTokenResult: async () => ({} as any),
-            reload: async () => {},
-            toJSON: () => ({}),
-            phoneNumber: null,
-            photoURL: null,
-            providerId: "password",
-          } as unknown as FirebaseUser);
-          setRole((parsed.role as Role) || "hotel_admin");
-          setHotelId(parsed.hotelId || "hotel_demo_01");
-          setLoading(false);
-          return true;
-        } catch {
-          // ignore
-        }
-      }
-      return false;
-    };
-
-    const handleAuthChange = () => {
-      syncLocal();
-    };
-
-    window.addEventListener("storage", handleAuthChange);
-    window.addEventListener("innpilot-auth-change", handleAuthChange);
-
+    // Firebase Auth is the only source of truth. Role and hotel come from
+    // the real users/{uid} document — provisioned by a super_admin or the
+    // bootstrap script, never by the client — and nothing is assumed when
+    // that document is missing or unreadable.
     const unsubAuth = onAuthStateChanged(
       auth,
       (u) => {
         unsubRole?.();
         unsubRole = undefined;
 
-        if (u) {
-          setUser(u);
-          unsubRole = onSnapshot(
-            doc(db, "users", u.uid),
-            (snap) => {
-              const data = snap.exists() ? snap.data() : undefined;
-              const r = data?.role as Role | undefined;
-              const validRole =
-                r === "super_admin" || r === "hotel_admin" || r === "staff" ? r : "hotel_admin";
-              setRole(validRole);
-              setHotelId(
-                validRole === "super_admin" ? null : ((data?.hotelId as string | undefined) ?? "hotel_demo_01")
-              );
-              setLoading(false);
-            },
-            () => {
-              setRole("hotel_admin");
-              setHotelId("hotel_demo_01");
-              setLoading(false);
-            }
-          );
-        } else {
-          const hasLocal = syncLocal();
-          if (!hasLocal) {
-            setUser(null);
-            setRole(null);
-            setHotelId(null);
-            setLoading(false);
-          }
-        }
-      },
-      () => {
-        const hasLocal = syncLocal();
-        if (!hasLocal) {
+        if (!u) {
           setUser(null);
           setRole(null);
           setHotelId(null);
+          setLoading(false);
+          return;
         }
+
+        setUser(u);
+        unsubRole = onSnapshot(
+          doc(db, "users", u.uid),
+          (snap) => {
+            const data = snap.exists() ? snap.data() : undefined;
+            const r = data?.role as Role | undefined;
+            // Fail closed: an unprovisioned or unknown account is "pending",
+            // never an implicit admin. Only a real users/{uid} doc grants
+            // hotel access, and only super_admin has a null hotel.
+            const validRole: Role =
+              r === "super_admin" || r === "hotel_admin" || r === "staff" || r === "pending"
+                ? r
+                : "pending";
+            setRole(validRole);
+            setHotelId(
+              validRole === "super_admin"
+                ? null
+                : ((data?.hotelId as string | undefined) ?? null)
+            );
+            setLoading(false);
+          },
+          () => {
+            // A denied or failed profile read is not a licence to assume
+            // access. Treat it as not-yet-active.
+            setRole("pending");
+            setHotelId(null);
+            setLoading(false);
+          }
+        );
+      },
+      () => {
+        setUser(null);
+        setRole(null);
+        setHotelId(null);
         setLoading(false);
       }
     );
 
     return () => {
-      window.removeEventListener("storage", handleAuthChange);
-      window.removeEventListener("innpilot-auth-change", handleAuthChange);
       unsubAuth();
       unsubRole?.();
     };
